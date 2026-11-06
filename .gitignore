@@ -1,0 +1,14 @@
+runs/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+/data
+/data-tiny
+/data-small
+/data-dummy
+/data-overfit
+/notebooks
+/data-wikitext2
+results.tsv
+run.log

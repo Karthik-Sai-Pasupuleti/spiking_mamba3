@@ -1,0 +1,60 @@
+# Mamba-3 SISO 187M on WikiText-2 (raw): a fast check that the architecture trains, on one GPU.
+# Same model as configs/mamba3-siso-187m-scratch.yaml; only data, batch and schedule differ.
+# WikiText-2 has 2.4M training tokens, so a 187M model memorizes it within a few epochs:
+# expect val_loss to reach its minimum and then rise while train_loss keeps falling.
+# Make the data first (see prepare_wikitext2.py), then run
+#   .venv/bin/python train.py --config configs/mamba3-siso-187m-wikitext2.yaml
+
+run_name: mamba3-siso-187m-wikitext2
+seed: 0                        # NOT IN PAPER
+
+data:
+  train_bin: data-wikitext2/train.bin    # 2,435,651 tokens, 629 articles (prepare_wikitext2.py)
+  val_bin: data-wikitext2/validation.bin  # 252,785 tokens, 60 articles
+  seq_len: 1024                # NOT IN PAPER: half of [M3]'s 2048, for 2x more samples (2,378)
+  val_samples: 246             # all of validation.bin: (252,785 - 1) // 1024 = 246 samples
+  num_workers: 1               # DataLoader workers; FlashAttention uses 1 (the data is a memory map)
+
+model:                         # [CK]; MambaConfig fields
+  d_model: 768
+  d_intermediate: 1536
+  n_layer: 12
+  vocab_size: 128256           # Llama-3.1 tokenizer
+  ssm_cfg:
+    layer: Mamba3
+    d_state: 128               # [M3 App. D]
+    expand: 2                  # [M3 App. D]
+    headdim: 64                # [M3 App. D]
+    ngroups: 1
+    rope_fraction: 0.5
+    dt_min: 0.001
+    dt_max: 0.1
+    dt_init_floor: 0.0001
+    A_floor: 0.0001
+    chunk_size: 64
+    is_mimo: false
+    is_outproj_norm: false
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  pad_vocab_size_multiple: 16
+  tie_embeddings: true
+
+optim:
+  peak_lr: 6.0e-4              # NOT IN PAPER: lower than the 1.5e-3 of the 528K-token batches,
+                               # because a step here has 16K tokens
+  min_lr: 1.0e-5               # cosine decay target [M2 D.2]
+  betas: [0.9, 0.95]           # [M2 D.2]
+  weight_decay: 0.1            # [M2 D.2]; 2-D weight matrices only (NOT IN PAPER)
+  grad_clip: 1.0               # [M2 D.2]
+  warmup_fraction: 0.05        # NOT IN PAPER: 37 of 740 steps
+
+train:
+  epochs: 5                    # NOT IN PAPER: enough to see val_loss turn upward (overfitting)
+  batch_size: 16               # NOT IN PAPER: 16 x 1024 = 16K tokens per step, 148 steps per epoch
+  micro_batch_size: 2          # memory: 4 ran out of memory with ~18 GB of the 32 GB GPU free
+  max_steps: null              # null = all epochs: 5 x 148 = 740 steps, 12M tokens
+  log_every: 10
+  val_every: 20                # 37 validations; must be a multiple of log_every (train.py validates on log steps only)
+  save_every: 148              # last.pt once per epoch
+  dtype: bfloat16              # autocast; parameters stay float32 [M3 App. D: bf16]

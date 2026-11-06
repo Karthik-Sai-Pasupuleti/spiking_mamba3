@@ -1,0 +1,63 @@
+# Mamba-3 SISO 61M on WikiText-2 (raw): a model sized for the 2.4M training tokens, on one GPU.
+# Same Mamba-3 block settings as configs/mamba3-siso-187m-scratch.yaml (d_state 128, headdim 64,
+# expand 2, SISO); only width and depth are smaller. 60.6M parameters: 49.3M embedding (tied with
+# the output head, 128,256 x 384) + 11.4M in the 6 blocks. The 187M model on the same data
+# (configs/mamba3-siso-187m-wikitext2.yaml) has 88.3M in its blocks and overfits after 3 epochs.
+# Make the data first (see prepare_wikitext2.py), then run
+#   .venv/bin/python train.py --config configs/mamba3-siso-61m-wikitext2.yaml --run-dir runs/mamba3-siso-61m-wikitext2
+
+run_name: mamba3-siso-61m-wikitext2
+seed: 0                        # NOT IN PAPER
+
+data:
+  train_bin: data-wikitext2/train.bin    # 2,435,651 tokens, 629 articles (prepare_wikitext2.py)
+  val_bin: data-wikitext2/validation.bin  # 252,785 tokens, 60 articles
+  seq_len: 1024                # NOT IN PAPER: half of [M3]'s 2048, for 2x more samples (2,378)
+  val_samples: 246             # all of validation.bin: (252,785 - 1) // 1024 = 246 samples
+  num_workers: 1               # DataLoader workers; FlashAttention uses 1 (the data is a memory map)
+
+model:                         # MambaConfig fields; width and depth NOT IN PAPER
+  d_model: 384                 # half of 187M's 768
+  d_intermediate: 768          # 2 x d_model, as in 187M
+  n_layer: 6                   # half of 187M's 12
+  vocab_size: 128256           # Llama-3.1 tokenizer
+  ssm_cfg:
+    layer: Mamba3
+    d_state: 128               # [M3 App. D]
+    expand: 2                  # [M3 App. D]
+    headdim: 64                # [M3 App. D]
+    ngroups: 1
+    rope_fraction: 0.5
+    dt_min: 0.001
+    dt_max: 0.1
+    dt_init_floor: 0.0001
+    A_floor: 0.0001
+    chunk_size: 64
+    is_mimo: false
+    is_outproj_norm: false
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  pad_vocab_size_multiple: 16
+  tie_embeddings: true
+
+optim:
+  peak_lr: 1.0e-3              # NOT IN PAPER: a smaller model tolerates a higher rate than the
+                               # 6e-4 of the 187M WikiText-2 run
+  min_lr: 1.0e-5               # cosine decay target [M2 D.2]
+  betas: [0.9, 0.95]           # [M2 D.2]
+  weight_decay: 0.1            # [M2 D.2]; 2-D weight matrices only (NOT IN PAPER)
+  grad_clip: 1.0               # [M2 D.2]
+  warmup_fraction: 0.05        # NOT IN PAPER: 37 of 740 steps
+
+train:
+  epochs: 5                    # NOT IN PAPER: val loss is lowest after epoch 5 (step 740) and rises
+                               # after it (10-epoch run: 4.873 at step 740 -> 5.338 at step 1480)
+  batch_size: 16               # NOT IN PAPER: 16 x 1024 = 16K tokens per step, 148 steps per epoch
+  micro_batch_size: 4          # memory is set by the logits, not the model: 4 x 1024 x 128,256 float32
+                               # = 2.1 GB; 8 ran out of memory with ~18 GB of the 32 GB GPU free
+  max_steps: null              # null = all epochs: 5 x 148 = 740 steps, 12M tokens
+  log_every: 10
+  val_every: 20                # 37 validations; must be a multiple of log_every (train.py validates on log steps only)
+  save_every: 148              # last.pt once per epoch
+  dtype: bfloat16              # autocast; parameters stay float32 [M3 App. D: bf16]

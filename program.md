@@ -8,7 +8,9 @@ spiking model and improve it by yourself, one experiment at a time, while the hu
 1. **Neuron placement.** Following the SpikingMamba literature (arXiv 2510.04595), spiking
    neurons sit in front of `in_proj` and `out_proj` of every Mamba-3 block. The architecture
    stays intact, but both projections receive sparse spikes instead of dense activations.
-2. **PLIF, multi-step.** The neuron is a PLIF (parametric LIF, learnable time constant). Each
+2. **PLIF, multi-step.** The neuron is SpikingJelly's PLIF,
+   `spikingjelly.activation_based.neuron.ParametricLIFNode` with `step_mode="m"` (parametric
+   LIF with a learnable time constant, all T steps in one call on a `[T, N, D]` input). Each
    token's activation is fed to the neuron for T steps; the membrane integrates over the T
    steps and the projection receives the spike count / T. The network is not repeated over
    the T steps: the model already works in the token domain, and the SSM hidden state carries
@@ -17,10 +19,13 @@ spiking model and improve it by yourself, one experiment at a time, while the hu
    validation perplexity on WikiText-2, under a cap on its firing rate (see "The goal").
 4. **Knowledge distillation.** A frozen dense Mamba-3 61M teacher is available for logit
    distillation (`KD_WEIGHT`, `KD_TEMPERATURE` in `spiking_mamba3.py`; off in the baseline).
-5. **Selective decay and threshold.** Make the PLIF time constant and/or threshold depend on
+5. **Selective decay and threshold.** Make the effective threshold and/or decay depend on
    the token (computed from the neuron's input, like Mamba's input-dependent Δ), so that the
    neuron passes little to the Mamba block for filler tokens and acts as one more layer that
-   selects the key features of the data.
+   selects the key features of the data. The stock PLIF has one learnable tau per neuron layer
+   and one fixed threshold, so build this *around* it, on its input: scaling the input by
+   1 / θ(token) is the same as a per-token threshold θ(token), and a per-token gate g(token) in
+   [0, 1] on the input silences filler tokens.
 
 ## Setup
 
@@ -54,9 +59,11 @@ the full validation split. The baseline takes about 2.5 minutes. Launch it as:
 For a 20-step check that new code runs at all, add `--smoke` (about 30 s; its numbers mean nothing).
 
 **What you CAN do** (only in `spiking_mamba3.py`):
-- Change the neuron: PLIF details, T (1-8), tau and threshold (fixed, learnable or
-  token-dependent), surrogate gradient, reset mode, initialization, input normalization in
-  front of the neuron.
+- Change T (1-8) and the arguments of the `ParametricLIFNode`: `init_tau`, `v_threshold`,
+  `v_reset` (0.0 = hard reset, None = soft reset), `decay_input`, `detach_reset` and
+  `surrogate_function` (any of `spikingjelly.activation_based.surrogate`, with its `alpha`).
+- Change what feeds the neuron: a norm, a learnable gain, or a token-dependent scale or gate
+  computed from the neuron's input (idea 5).
 - Change the training: the LR, schedule, warmup, weight decay, gradient clipping, the training
   loss, and knowledge distillation with the fixed teacher.
 - Add new classes or functions to the file.
@@ -69,6 +76,9 @@ For a 20-step check that new code runs at all, add `--smoke` (about 30 s; its nu
   `TEACHER_CHECKPOINT`, `RATE_CAP`, `TOTAL_STEPS`, `OUTPUT_CHECKPOINT`), the function
   `firing_rate_and_val_loss`, and the summary block that main() prints. Do not override the
   model size, data, seq_len, batch size, step count or validation set from the config.
+- Replace the neuron. Every neuron is a SpikingJelly `ParametricLIFNode` with
+  `step_mode="m"`, called once on the `[T, N, D]` input. Do not write your own neuron,
+  subclass it, or change its dynamics or its `backend`.
 - Remove, bypass or move the neurons: they stay in front of `in_proj` and `out_proj`, and no
   dense (non-spike) path may reach those projections. The neuron output stays a spike count / T
   of binary spikes, so every value is in {0, 1/T, ..., 1}.
@@ -191,8 +201,10 @@ Not a plan, only a cold start. Use your judgement.
   more information through while staying under the 20% cap.
 - A norm or a learnable gain in front of each neuron, so its input scale fits the threshold.
 - Distillation: `KD_WEIGHT` 0.3-0.7, `KD_TEMPERATURE` 1-2.
-- Selective (token-dependent) tau and threshold, idea 5: a small projection of the neuron input,
-  passed through a softplus or sigmoid, per token and channel.
-- Surrogate gradient: ATan `alpha`, Sigmoid, a wider or narrower window.
-- Soft reset (subtract the threshold) instead of hard reset to 0.
+- Selective threshold or gate, idea 5: a small projection of the neuron input, through a
+  softplus (scale 1/θ) or sigmoid (gate g), per token and channel, applied before the PLIF.
+- Surrogate gradient: `surrogate.ATan(alpha=...)`, `surrogate.Sigmoid(alpha=...)`, and others in
+  `spikingjelly.activation_based.surrogate`.
+- Soft reset (`v_reset=None`, subtract the threshold) instead of hard reset to 0.
+- `decay_input=False` (the input is added to the membrane without the 1/tau factor).
 - A higher LR or a longer warmup for the neuron parameters only.

@@ -53,7 +53,6 @@ WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0
-SURROGATE_ALPHA = 1.5          # ATan surrogate sharpness (SpikingJelly default 2.0)
 
 # ---- Fixed: these define the comparison. Do not change. ----
 BASE_CONFIG = Path("configs/mamba3-siso-61m-wikitext2.yaml")
@@ -78,7 +77,7 @@ class PLIFRate(nn.Module):
             init_tau=init_tau,
             v_threshold=v_threshold,
             v_reset=0.0,
-            surrogate_function=surrogate.ATan(alpha=SURROGATE_ALPHA),
+            surrogate_function=surrogate.ATan(),
             detach_reset=True,
             step_mode="m",
         )

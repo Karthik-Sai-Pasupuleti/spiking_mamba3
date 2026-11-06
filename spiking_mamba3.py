@@ -51,6 +51,7 @@ MIN_LR = 5.0e-4
 WARMUP_FRACTION = 0.50
 WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0
+BETAS = (0.9, 0.99)            # AdamW betas (config: 0.9, 0.95)
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0
 
@@ -164,6 +165,7 @@ def build_config(smoke: bool) -> dict[str, Any]:
         warmup_fraction=WARMUP_FRACTION,
         weight_decay=WEIGHT_DECAY,
         grad_clip=GRAD_CLIP,
+        betas=BETAS,
     )
     if smoke:
         cfg["train"]["max_steps"] = 20

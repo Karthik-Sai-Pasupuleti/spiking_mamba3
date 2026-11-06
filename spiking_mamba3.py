@@ -49,7 +49,7 @@ PLIF_V_THRESHOLD = 1.0
 PEAK_LR = 1.0e-3               # same schedule as the dense 61M teacher
 MIN_LR = 1.0e-5
 WARMUP_FRACTION = 0.05
-WEIGHT_DECAY = 0.1
+WEIGHT_DECAY = 0.3
 GRAD_CLIP = 1.0
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0

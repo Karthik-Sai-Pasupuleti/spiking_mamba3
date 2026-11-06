@@ -54,7 +54,7 @@ GRAD_CLIP = 0.5
 BETAS = (0.9, 0.99)            # AdamW betas (config: 0.9, 0.95)
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0
-OUT_GAIN_INIT = 2.0            # initial value of the learnable gain before the out_proj neuron
+OUT_GAIN_INIT = 1.5            # initial value of the learnable gain before the out_proj neuron
 
 # ---- Fixed: these define the comparison. Do not change. ----
 BASE_CONFIG = Path("configs/mamba3-siso-61m-wikitext2.yaml")
@@ -113,8 +113,8 @@ class SpikingLinear(nn.Module):
         self.weight = linear.weight
         self.bias = linear.bias
         self.plif = plif
-        # Optional learnable per-channel input gain (init 1): it can rescale a channel onto the
-        # threshold, or flip a channel whose useful signal is negative.
+        # Optional learnable per-channel input gain (init OUT_GAIN_INIT): it rescales channels onto
+        # the threshold. At gain 1, the out_proj neurons of layers 0 and 1 never fired.
         self.gain = None
         if gain:
             self.gain = nn.Parameter(

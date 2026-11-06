@@ -107,14 +107,21 @@ class SpikingLinear(nn.Module):
     names and shapes stay those of the dense layer.
     """
 
-    def __init__(self, linear: nn.Linear, plif: PLIFRate) -> None:
+    def __init__(self, linear: nn.Linear, plif: PLIFRate, gain: bool = False) -> None:
         super().__init__()
         self.weight = linear.weight
         self.bias = linear.bias
         self.plif = plif
+        # Optional learnable per-channel input gain (init 1): it can rescale a channel onto the
+        # threshold, or flip a channel whose useful signal is negative.
+        self.gain = None
+        if gain:
+            self.gain = nn.Parameter(torch.ones(linear.in_features, device=linear.weight.device))
 
     def forward(self, x: Tensor) -> Tensor:
-        """Spike the input, then apply the linear map to the spike rates."""
+        """Spike the (optionally scaled) input, then apply the linear map to the spike rates."""
+        if self.gain is not None:
+            x = x * self.gain.to(x.dtype)
         return F.linear(self.plif(x), self.weight, self.bias)
 
 
@@ -139,7 +146,9 @@ class SpikingMamba3(Mamba3):
         device = self.in_proj.weight.device
         for name in ("in_proj", "out_proj"):
             plif = PLIFRate(plif_steps, plif_init_tau, plif_v_threshold).to(device)
-            setattr(self, name, SpikingLinear(getattr(self, name), plif))
+            # out_proj sees the raw gated SSM output (no norm), so it gets a gain.
+            linear = SpikingLinear(getattr(self, name), plif, gain=name == "out_proj")
+            setattr(self, name, linear)
 
 
 SSM_LAYERS["SpikingMamba3"] = SpikingMamba3

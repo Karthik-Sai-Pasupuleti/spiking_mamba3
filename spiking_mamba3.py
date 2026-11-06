@@ -54,6 +54,7 @@ GRAD_CLIP = 0.5
 BETAS = (0.9, 0.99)            # AdamW betas (config: 0.9, 0.95)
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0
+OUT_GAIN_INIT = 2.0            # initial value of the learnable gain before the out_proj neuron
 
 # ---- Fixed: these define the comparison. Do not change. ----
 BASE_CONFIG = Path("configs/mamba3-siso-61m-wikitext2.yaml")
@@ -116,7 +117,9 @@ class SpikingLinear(nn.Module):
         # threshold, or flip a channel whose useful signal is negative.
         self.gain = None
         if gain:
-            self.gain = nn.Parameter(torch.ones(linear.in_features, device=linear.weight.device))
+            self.gain = nn.Parameter(
+                torch.full((linear.in_features,), OUT_GAIN_INIT, device=linear.weight.device)
+            )
 
     def forward(self, x: Tensor) -> Tensor:
         """Spike the (optionally scaled) input, then apply the linear map to the spike rates."""

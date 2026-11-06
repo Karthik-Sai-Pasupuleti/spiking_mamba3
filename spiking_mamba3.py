@@ -47,7 +47,7 @@ T = 4                          # PLIF steps per token (allowed: 1-8)
 PLIF_INIT_TAU = 2.0            # initial membrane time constant; tau = 1 / sigmoid(w), w learnable
 PLIF_V_THRESHOLD = 1.0
 PEAK_LR = 5.0e-3               # 5x the teacher's 1e-3; 6e-3 with 5% warmup diverged
-MIN_LR = 1.0e-4
+MIN_LR = 5.0e-4
 WARMUP_FRACTION = 0.50
 WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0

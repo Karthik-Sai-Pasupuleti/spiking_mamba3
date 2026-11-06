@@ -46,14 +46,13 @@ logger = logging.getLogger(__name__)
 T = 4                          # PLIF steps per token (allowed: 1-8)
 PLIF_INIT_TAU = 2.0            # initial membrane time constant; tau = 1 / sigmoid(w), w learnable
 PLIF_V_THRESHOLD = 1.0
-PEAK_LR = 5.0e-3               # same schedule as the dense 61M teacher
+PEAK_LR = 5.0e-3               # 5x the teacher's 1e-3; 6e-3 with 5% warmup diverged
 MIN_LR = 1.0e-5
 WARMUP_FRACTION = 0.50
 WEIGHT_DECAY = 0.3
 GRAD_CLIP = 1.0
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0
-SCALE_RANK = 32                # rank of the token-dependent input scale in front of each PLIF
 SURROGATE_ALPHA = 1.0          # ATan surrogate sharpness (SpikingJelly default 2.0)
 
 # ---- Fixed: these define the comparison. Do not change. ----
@@ -72,17 +71,9 @@ class PLIFRate(nn.Module):
     While `track` is True, the layer adds up its spikes and neuron-steps for `firing_rate`.
     """
 
-    def __init__(self, steps: int, init_tau: float, v_threshold: float, features: int) -> None:
+    def __init__(self, steps: int, init_tau: float, v_threshold: float) -> None:
         super().__init__()
         self.steps = steps
-        # Selective threshold (idea 5): a per-token, per-channel input scale s(x) = softplus(.),
-        # the same as a threshold v_th / s(x). Starts at s = 1 (zero weight, bias softplus^-1(1)).
-        self.scale = nn.Sequential(
-            nn.Linear(features, SCALE_RANK, bias=False), nn.Linear(SCALE_RANK, features)
-        )
-        nn.init.zeros_(self.scale[1].weight)
-        nn.init.constant_(self.scale[1].bias, math.log(math.e - 1))
-        self.scale[1].bias._no_reinit = True  # keep it through the model's _init_weights
         self.neuron = neuron.ParametricLIFNode(
             init_tau=init_tau,
             v_threshold=v_threshold,
@@ -99,7 +90,6 @@ class PLIFRate(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         """Return the spike count / T of each element of `x`, in the dtype of `x`."""
         flat = x.reshape(-1, x.shape[-1]).float()
-        flat = flat * F.softplus(self.scale(flat).float())
         self.neuron.reset()
         spikes = self.neuron(flat.unsqueeze(0).expand(self.steps, *flat.shape))  # (T, N, D)
         rate = spikes.mean(dim=0)
@@ -148,8 +138,7 @@ class SpikingMamba3(Mamba3):
             raise ValueError("SpikingMamba3 supports SISO only")
         device = self.in_proj.weight.device
         for name in ("in_proj", "out_proj"):
-            features = getattr(self, name).in_features
-            plif = PLIFRate(plif_steps, plif_init_tau, plif_v_threshold, features).to(device)
+            plif = PLIFRate(plif_steps, plif_init_tau, plif_v_threshold).to(device)
             setattr(self, name, SpikingLinear(getattr(self, name), plif))
 
 

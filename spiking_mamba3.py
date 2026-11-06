@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 T = 4                          # PLIF steps per token (allowed: 1-8)
 PLIF_INIT_TAU = 2.0            # initial membrane time constant; tau = 1 / sigmoid(w), w learnable
 PLIF_V_THRESHOLD = 1.0
-PEAK_LR = 4.0e-3               # same schedule as the dense 61M teacher
+PEAK_LR = 5.0e-3               # same schedule as the dense 61M teacher
 MIN_LR = 1.0e-5
 WARMUP_FRACTION = 0.20
 WEIGHT_DECAY = 0.3

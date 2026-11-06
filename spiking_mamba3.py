@@ -51,7 +51,7 @@ MIN_LR = 1.0e-5
 WARMUP_FRACTION = 0.05
 WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0
-KD_WEIGHT = 0.0                # 0 = no distillation; loss = (1 - w) * CE + w * KD
+KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0
 
 # ---- Fixed: these define the comparison. Do not change. ----

@@ -49,7 +49,7 @@ PLIF_V_THRESHOLD = 1.0
 PEAK_LR = 5.0e-3               # 5x the teacher's 1e-3; 6e-3 with 5% warmup diverged
 MIN_LR = 1.0e-5
 WARMUP_FRACTION = 0.50
-WEIGHT_DECAY = 0.3
+WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0
 KD_WEIGHT = 0.5                # 0 = no distillation; loss = (1 - w) * CE + w * KD
 KD_TEMPERATURE = 1.0

@@ -11,7 +11,11 @@ import yaml
 
 
 def load_config(path: Path, smoke: bool = False) -> dict[str, Any]:
-    """Read the YAML config. With `smoke`, shrink the model, sequences and steps."""
+    """Read the YAML config. With `smoke`, shrink the model, sequences and steps.
+
+    A smoke run starts from random weights: `train.init_from` is dropped, because the
+    shrunken model cannot load a full-size checkpoint.
+    """
     with path.open() as f:
         cfg: dict[str, Any] = yaml.safe_load(f)
     if smoke:
@@ -26,5 +30,6 @@ def load_config(path: Path, smoke: bool = False) -> dict[str, Any]:
             log_every=1,
             val_every=10,
             save_every=10,
+            init_from=None,
         )
     return cfg

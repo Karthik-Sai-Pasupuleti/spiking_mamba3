@@ -6,11 +6,14 @@ licenses/LICENSE-flash-attention). It cuts one flat token array into samples of 
 and `seq_len` targets. Sample `i` reads tokens `i * seq_len` to `i * seq_len + seq_len + 1`,
 so neighbouring samples share one token and no token is lost.
 
-`load_tokens` is ours: it memory-maps a pre-tokenized `.bin` file (flat uint32 token ids,
-here FineWeb-Edu with the Llama-3.1 tokenizer), so the file is never loaded whole.
-`dataset.dataloader` turns the dataset into batches.
+`load_tokens` and `token_dataset` are ours. `load_tokens` memory-maps a pre-tokenized `.bin`
+file (flat uint32 token ids, here FineWeb-Edu with the Llama-3.1 tokenizer), so the file is
+never loaded whole. `token_dataset` turns a path or a glob of many `.bin` files into one
+dataset; samples never cross from one file into the next. `dataset.dataloader` turns the
+dataset into batches.
 """
 
+from glob import glob
 from pathlib import Path
 
 # Inspired by https://github.com/NVIDIA/Megatron-LM/blob/main/tasks/zeroshot_gpt/datasets.py
@@ -50,6 +53,21 @@ class LMDataset(torch.utils.data.Dataset):
 def load_tokens(path: Path) -> np.ndarray:
     """Memory-map a `.bin` file of uint32 token ids as a read-only 1-D array."""
     return np.memmap(path, dtype=np.uint32, mode="r")
+
+
+def token_dataset(pattern: str, seq_len: int) -> torch.utils.data.Dataset:
+    """One `LMDataset` per `.bin` file matching `pattern`, joined in sorted file order.
+
+    `pattern` is a plain path (one file) or a glob such as "data/train/*.bin". Raises
+    FileNotFoundError when nothing matches. With one file the `LMDataset` is returned as is.
+    """
+    files = sorted(glob(pattern))
+    if not files:
+        raise FileNotFoundError(f"no token files match {pattern!r}")
+    parts = [LMDataset(load_tokens(Path(f)), seq_len) for f in files]
+    if len(parts) == 1:
+        return parts[0]
+    return torch.utils.data.ConcatDataset(parts)
 
 
 if __name__ == "__main__":

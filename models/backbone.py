@@ -17,11 +17,12 @@ from models.kernels.triton.layer_norm import RMSNorm, layer_norm_fn
 from models.layers.block import Block
 from models.layers.mamba3 import Mamba3
 from models.layers.mlp import GatedMLP
+from models.layers.spiking import SpikingMamba3
 
 Device = torch.device | str | None
 
 # Mixer classes by the upstream `ssm_cfg["layer"]` name.
-SSM_LAYERS: dict[str, type[Mamba3]] = {"Mamba3": Mamba3}
+SSM_LAYERS: dict[str, type[Mamba3]] = {"Mamba3": Mamba3, "SpikingMamba3": SpikingMamba3}
 
 
 def create_block(

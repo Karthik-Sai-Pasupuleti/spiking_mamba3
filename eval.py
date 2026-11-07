@@ -50,7 +50,8 @@ def main() -> None:
     """Load a checkpoint and print the mean loss over the validation windows."""
     from configs.config import load_config
     from dataset.dataloader import build_val_loader
-    from dataset.dataset import LMDataset, load_tokens
+    from dataset.dataset import token_dataset
+    from models.layers.spiking import track_spikes
     from models.model import MambaLMHeadModel, MambaConfig
     from utils.checkpoint import load_model_state
 
@@ -64,12 +65,15 @@ def main() -> None:
     model = MambaLMHeadModel(MambaConfig(**cfg["model"]), device="cuda")
     model.load_state_dict(load_model_state(args.checkpoint))
     data = cfg["data"]
-    val = LMDataset(load_tokens(Path(data["val_bin"])), data["seq_len"])
+    val = token_dataset(data["val_bin"], data["seq_len"])
     loader = build_val_loader(
         val, data["val_samples"], cfg["train"]["micro_batch_size"], data["num_workers"]
     )
-    loss = mean_loss(model, loader, getattr(torch, cfg["train"]["dtype"]))
+    with track_spikes(model) as rates:
+        loss = mean_loss(model, loader, getattr(torch, cfg["train"]["dtype"]))
     logger.info("val loss %.4f ppl %.2f", loss, math.exp(loss))
+    if rates:
+        logger.info("spike rate %s", " ".join(f"{k} {v:.4f}" for k, v in rates.items()))
 
 
 if __name__ == "__main__":

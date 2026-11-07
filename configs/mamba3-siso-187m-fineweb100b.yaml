@@ -1,0 +1,65 @@
+# Dense Mamba-3 SISO 187M, same data and settings as the spiking config: the reference.
+# Use it to evaluate the pretrained model on the same validation file (eval.py).
+# Data: FineWeb-Edu sample-100BT (HuggingFaceFW/fineweb-edu, 140 parquet files), Llama-3.1 tokenizer,
+# 2K context, made by scripts/prepare_fineweb.py. Start: the pretrained dense checkpoint
+# state-spaces/mamba3-siso-187m (copy it to weights/mamba3-siso-187m/pytorch_model.bin).
+# Optimizer and batch follow configs/mamba3-siso-187m-scratch.yaml ([M2 D.2], ~0.5M tokens/step).
+# Sources: [M3] Mamba-3 paper (arXiv 2603.15569), [M2] Mamba-2 paper (arXiv 2405.21060) App. D.2,
+# [CK] weights/mamba3-siso-187m/config.json. "NOT IN PAPER" marks a choice the papers leave open.
+# Cluster (3 x A100 40 GB): sbatch scripts/cluster/train.sbatch configs/mamba3-siso-187m-fineweb100b.yaml
+# One GPU:  .venv/bin/python train.py --config configs/mamba3-siso-187m-fineweb100b.yaml --run-dir runs/mamba3-siso-187m-fineweb100b
+
+run_name: mamba3-siso-187m-fineweb100b
+seed: 0                        # NOT IN PAPER
+
+data:
+  train_bin: data-fineweb-100bt/train/*.bin  # 139 files of FineWeb-Edu sample-100BT, Llama-3.1 ids
+  val_bin: data-fineweb-100bt/val/013_00009.bin  # held-out file, never trained on
+  seq_len: 2048                # [M3 sec. 4.1]
+  val_samples: 256             # NOT IN PAPER: 256 x 2048 = 0.5M tokens per validation
+  num_workers: 2               # DataLoader workers per GPU
+
+model:                         # [CK]; MambaConfig fields
+  d_model: 768
+  d_intermediate: 1536
+  n_layer: 12
+  vocab_size: 128256           # Llama-3.1 tokenizer
+  ssm_cfg:
+    layer: Mamba3
+    d_state: 128               # [M3 App. D]
+    expand: 2                  # [M3 App. D]
+    headdim: 64                # [M3 App. D]
+    ngroups: 1
+    rope_fraction: 0.5
+    dt_min: 0.001
+    dt_max: 0.1
+    dt_init_floor: 0.0001
+    A_floor: 0.0001
+    chunk_size: 64
+    is_mimo: false
+    is_outproj_norm: false
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  pad_vocab_size_multiple: 16
+  tie_embeddings: true
+
+optim:
+  peak_lr: 1.5e-3              # NOT IN PAPER: same as the earlier full SISO run (3e-3 spiked)
+  min_lr: 1.0e-5               # cosine decay target [M2 D.2]
+  betas: [0.9, 0.95]           # [M2 D.2]
+  weight_decay: 0.1            # [M2 D.2]; 2-D weight matrices only (NOT IN PAPER)
+  grad_clip: 1.0               # [M2 D.2]
+  warmup_fraction: 0.01        # NOT IN PAPER: ~1,930 steps
+
+train:
+  epochs: 1
+  batch_size: 258              # 3 GPUs x micro 2 x 43 accumulation steps; 258 x 2048 = 528K tokens
+                               # [M2 D.2: 0.5M]. Must be a multiple of micro_batch_size x GPUs.
+  micro_batch_size: 2          # NOT IN PAPER: memory only (4 ran out of memory on a 32 GB GPU)
+  max_steps: null              # null = one pass over the 139 train files (~102B tokens, ~193K steps; est.)
+  log_every: 50
+  val_every: 1000               # must be a multiple of log_every
+  save_every: 250              # last.pt every ~18 min (est. 4.4 s/step): at most that is lost at a time limit
+  init_from: weights/mamba3-siso-187m/pytorch_model.bin   # pretrained state-spaces/mamba3-siso-187m (100B tokens)
+  dtype: bfloat16              # autocast; parameters stay float32 [M3 App. D: bf16]

@@ -23,7 +23,7 @@ class MambaConfig:
 
     The attention fields of upstream are left out. `ssm_cfg` holds the keyword arguments
     of the mixer (d_state, headdim, chunk_size, ...). Its `"layer"` key picks the mixer
-    from `SSM_LAYERS`; only "Mamba3" (the default) exists.
+    from `SSM_LAYERS`: "Mamba3" (default) or "SpikingMamba3".
     """
 
     d_model: int = 2560

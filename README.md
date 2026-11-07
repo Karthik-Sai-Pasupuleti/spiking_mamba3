@@ -105,6 +105,34 @@ Several GPUs on one node: `torchrun --standalone --nproc_per_node=N train.py ...
 `batch_size` must be a multiple of `micro_batch_size x N`. With `--run-dir runs/<name>` the run
 uses one fixed folder and resumes from its `last.pt` automatically.
 
+## Spiking Mamba-3-SISO-180M on FineWeb-Edu 100B (cluster)
+
+Spiking 187M model (`configs/spiking-mamba3-siso-187m-fineweb100b.yaml`): PLIF neurons before
+`in_proj` and `out_proj` (`models/layers/spiking.py`), started from the pretrained
+`state-spaces/mamba3-siso-187m` weights (`train.init_from`), trained on FineWeb-Edu sample-100BT
+(139 files, ~102B Llama-3.1 tokens, 2K context, ~0.5M tokens/step, ~193K steps; est.).
+`configs/mamba3-siso-187m-fineweb100b.yaml` is the dense reference with the same data.
+
+On the cluster, from the repo root:
+
+```bash
+bash scripts/cluster/setup.sh                      # once: uv, .venv, runs/slurm/, GPU check
+# copy the pretrained weights to weights/mamba3-siso-187m/pytorch_model.bin (setup.sh shows how)
+sbatch scripts/cluster/prepare_data.sbatch         # once: download + tokenize (~400 GB); resumable
+.venv/bin/python eval.py --config configs/mamba3-siso-187m-fineweb100b.yaml \
+    --checkpoint weights/mamba3-siso-187m/pytorch_model.bin          # dense reference ppl
+sbatch scripts/cluster/train.sbatch configs/spiking-mamba3-siso-187m-fineweb100b.yaml
+```
+
+Fill in the `TODO` lines (CPU partition, time limits) in the two `.sbatch` files first. Each
+training job resumes from `runs/<config name>/last.pt`; `train.sbatch` shows how to queue jobs
+in a row. `metrics.csv` has a `spike_rate` column (validation firing rate).
+
+**Known issue (2026-11-07):** with the nov6 neuron settings (threshold 1.0, tau 2.0, T=4),
+the pretrained model's activations are too small to fire: in a 40-step local test the rate was
+0.0002 and val loss rose from 2.75 (dense, ppl 15.65) to 6.5. Calibrate the neurons before the
+full run.
+
 ## Evaluate and generate
 
 ```bash

@@ -9,6 +9,10 @@ The loop does no file I/O. It gets its micro-batches from an iterator and report
 and checkpoints through functions it gets as arguments; `main` builds them from `dataset`
 (FlashAttention's `LMDataset` and fault-tolerant sampler) and `utils`.
 
+`train.init_from` in the config starts a fresh run from a dense checkpoint (for example the
+pretrained state-spaces/mamba3-siso-187m); a spiking model may add new neuron parameters. A
+run folder that holds `final.pt` is refused, so a finished run is never resumed by mistake.
+
 Every step checks the gradient norm. A non-finite gradient stops the run before
 `optimizer.step()` can write NaN into the weights, and logs which parameters have it.
 """
@@ -39,10 +43,11 @@ from dataset.dataloader import (
     micro_batches,
     plan_training,
 )
-from dataset.dataset import LMDataset, load_tokens
+from dataset.dataset import token_dataset
 from eval import mean_loss, next_token_loss
 from models.model import MambaLMHeadModel, MambaConfig
-from utils.checkpoint import load_checkpoint, save_checkpoint
+from models.layers.spiking import spike_rates, track_spikes
+from utils.checkpoint import load_checkpoint, load_model_state, save_checkpoint
 from utils.distributed import close_distributed, init_distributed
 from utils.run_files import (
     MetricsCSV,
@@ -192,9 +197,11 @@ def pretrain(
             loss_value = step_loss.item()
             elapsed = perf_counter() - window_start
             tokens_per_s = tcfg["log_every"] * tokens_per_step / elapsed
-            val_loss = float("nan")
+            val_loss, val_rate = float("nan"), float("nan")
             if done % tcfg["val_every"] == 0 or done == plan.total_steps:
-                val_loss = mean_loss(core, val_loader, dtype)
+                with track_spikes(core) as rates:
+                    val_loss = mean_loss(core, val_loader, dtype)
+                val_rate = rates.get("total", float("nan"))
             log_metrics(
                 {
                     "step": done,
@@ -205,11 +212,12 @@ def pretrain(
                     "lr": lr,
                     "grad_norm": grad_norm.item(),
                     "tokens_per_s": tokens_per_s,
+                    "spike_rate": val_rate,
                 }
             )
             logger.info(
-                "step %d/%d loss %.4f val %.4f lr %.2e gnorm %.2f %.0f tok/s",
-                done, plan.total_steps, loss_value, val_loss, lr, grad_norm.item(),
+                "step %d/%d loss %.4f val %.4f rate %.4f lr %.2e gnorm %.2f %.0f tok/s",
+                done, plan.total_steps, loss_value, val_loss, val_rate, lr, grad_norm.item(),
                 tokens_per_s,
             )
             window_start = perf_counter()
@@ -223,6 +231,31 @@ def pretrain(
 
     if rank == 0:
         save("final.pt", {"model": core.state_dict(), "step": plan.total_steps})
+
+
+def log_spike_rates(model: nn.Module, step: int) -> None:
+    """Log the firing rates of the last training micro-batch (nothing for a dense model)."""
+    rates = spike_rates(model)
+    if rates:
+        logger.info("step %d train spike rate %s", step,
+                    " ".join(f"{site} {rate:.4f}" for site, rate in rates.items()))
+
+
+def load_init_weights(model: nn.Module, path: Path) -> list[str]:
+    """Load a dense checkpoint (ours or upstream) into `model` as starting weights.
+
+    Returns the names of the parameters the checkpoint does not have. Only spiking
+    parameters (`*.plif.*`, `*.gain`) may be missing; anything else, or any parameter the
+    model does not have, raises ValueError.
+    """
+    result = model.load_state_dict(load_model_state(path), strict=False)
+    other = [k for k in result.missing_keys if ".plif." not in k and not k.endswith(".gain")]
+    if other or result.unexpected_keys:
+        raise ValueError(
+            f"{path} does not fit the model: missing {other[:10]}, "
+            f"unexpected {result.unexpected_keys[:10]}"
+        )
+    return list(result.missing_keys)
 
 
 def main() -> None:
@@ -243,14 +276,16 @@ def main() -> None:
             run_dir = create_run_dir(Path("runs"), cfg["run_name"])
         elif info.is_main:
             run_dir.mkdir(parents=True, exist_ok=True)
+        if (run_dir / "final.pt").exists():
+            raise SystemExit(f"{run_dir} has finished (final.pt exists); use a new --run-dir")
         if info.is_main:
             setup_logging(run_dir / "train.log")
 
         set_seed(cfg["seed"])
         data = cfg["data"]
         tcfg, ocfg = cfg["train"], cfg["optim"]
-        train = LMDataset(load_tokens(Path(data["train_bin"])), data["seq_len"])
-        val = LMDataset(load_tokens(Path(data["val_bin"])), data["seq_len"])
+        train = token_dataset(data["train_bin"], data["seq_len"])
+        val = token_dataset(data["val_bin"], data["seq_len"])
         sampler = build_train_sampler(train, info.rank, info.world_size, cfg["seed"])
         per_rank_step = tcfg["batch_size"] // info.world_size
         plan = plan_training(
@@ -270,6 +305,11 @@ def main() -> None:
             model.load_state_dict(state["model"])
             optimizer.load_state_dict(state["optimizer"])
             start_step = state["step"]
+        elif tcfg.get("init_from"):
+            new_params = load_init_weights(model, Path(tcfg["init_from"]))
+            if info.is_main:
+                logger.info("initialized from %s; %d new parameters: %s", tcfg["init_from"],
+                            len(new_params), new_params[:3])
         if info.is_main:
             write_config(
                 run_dir / "config.json",
@@ -296,6 +336,7 @@ def main() -> None:
             log_metrics=metrics.write if metrics else (lambda row: None),
             save=lambda name, payload: save_checkpoint(run_dir / name, payload),
             start_step=start_step,
+            inspect=log_spike_rates,
             rank=info.rank,
             world_size=info.world_size,
         )

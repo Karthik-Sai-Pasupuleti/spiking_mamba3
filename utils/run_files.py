@@ -27,6 +27,7 @@ METRIC_COLUMNS = [
     "lr",
     "grad_norm",
     "tokens_per_s",
+    "spike_rate",
 ]
 
 

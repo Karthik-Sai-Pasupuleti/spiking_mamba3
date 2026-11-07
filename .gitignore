@@ -12,3 +12,4 @@ __pycache__/
 /data-wikitext2
 /results.tsv
 /run.log
+/weights

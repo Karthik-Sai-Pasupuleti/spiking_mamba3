@@ -2,7 +2,7 @@
 
 `LMDataset` below is copied unchanged from Dao-AILab/flash-attention, file
 training/src/datamodules/datasets/lm_dataset.py at commit 34a06b9 (BSD-3-Clause, see
-LICENSE-flash-attention). It cuts one flat token array into samples of `seq_len` inputs
+licenses/LICENSE-flash-attention). It cuts one flat token array into samples of `seq_len` inputs
 and `seq_len` targets. Sample `i` reads tokens `i * seq_len` to `i * seq_len + seq_len + 1`,
 so neighbouring samples share one token and no token is lost.
 

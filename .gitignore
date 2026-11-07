@@ -10,5 +10,5 @@ __pycache__/
 /data-overfit
 /notebooks
 /data-wikitext2
-results.tsv
-run.log
+/results.tsv
+/run.log

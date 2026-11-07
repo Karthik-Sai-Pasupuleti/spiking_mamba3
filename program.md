@@ -44,7 +44,7 @@ Do this once, together with the human, before the loop starts:
      Read only.
 4. **Verify data and teacher exist**: `data-wikitext2/train.bin`, `data-wikitext2/validation.bin`
    and `runs/teacher-dense-61m-wikitext2/final.pt`. If any is missing, stop and tell the human
-   (data: run `prepare_wikitext2.py`; teacher: train the 61M config into that folder).
+   (data: run `.venv/bin/python -m scripts.prepare_wikitext2`; teacher: train the 61M config into that folder).
 5. **Initialize `results.tsv`** with only its header row (see "Logging results").
 6. **Confirm and go.**
 

@@ -1,0 +1,51 @@
+2026-11-06 21:23:38,617 T=4, 740 steps, 60942876 params, KD 0.50
+2026-11-06 21:24:05,309 step 1 loss 9.4409 lr 1.89e-05 gnorm 2.08 rate 0.0376
+2026-11-06 21:24:12,175 step 20 loss 7.1357 lr 3.78e-04 gnorm 1.78 rate 0.0751
+2026-11-06 21:24:19,396 step 40 loss 4.6295 lr 7.57e-04 gnorm 1.03 rate 0.0705
+2026-11-06 21:24:26,619 step 60 loss 4.0504 lr 1.14e-03 gnorm 0.64 rate 0.0586
+2026-11-06 21:24:33,832 step 80 loss 3.7132 lr 1.51e-03 gnorm 0.56 rate 0.0563
+2026-11-06 21:24:41,041 step 100 loss 3.5768 lr 1.89e-03 gnorm 0.46 rate 0.0543
+2026-11-06 21:24:48,261 step 120 loss 3.4795 lr 2.27e-03 gnorm 0.52 rate 0.0533
+2026-11-06 21:24:55,476 step 140 loss 3.2550 lr 2.65e-03 gnorm 0.44 rate 0.0539
+2026-11-06 21:25:02,748 step 160 loss 2.9460 lr 3.03e-03 gnorm 0.45 rate 0.0562
+2026-11-06 21:25:09,971 step 180 loss 3.0225 lr 3.41e-03 gnorm 0.47 rate 0.0553
+2026-11-06 21:25:17,189 step 200 loss 2.9933 lr 3.78e-03 gnorm 0.42 rate 0.0593
+2026-11-06 21:25:24,411 step 220 loss 2.7560 lr 4.16e-03 gnorm 0.35 rate 0.0618
+2026-11-06 21:25:31,643 step 240 loss 2.6895 lr 4.54e-03 gnorm 0.35 rate 0.0643
+2026-11-06 21:25:38,858 step 260 loss 2.9010 lr 4.92e-03 gnorm 0.47 rate 0.0667
+2026-11-06 21:25:46,081 step 280 loss 2.6312 lr 5.30e-03 gnorm 0.30 rate 0.0662
+2026-11-06 21:25:53,359 step 300 loss 2.5364 lr 5.68e-03 gnorm 0.26 rate 0.0646
+2026-11-06 21:26:00,595 step 320 loss 2.5921 lr 6.05e-03 gnorm 0.26 rate 0.0680
+2026-11-06 21:26:07,822 step 340 loss 2.5867 lr 6.43e-03 gnorm 0.25 rate 0.0672
+2026-11-06 21:26:15,046 step 360 loss 2.5486 lr 6.81e-03 gnorm 0.27 rate 0.0665
+2026-11-06 21:26:22,277 step 380 loss 2.6192 lr 6.99e-03 gnorm 0.19 rate 0.0654
+2026-11-06 21:26:29,542 step 400 loss 2.6188 lr 6.90e-03 gnorm 0.21 rate 0.0681
+2026-11-06 21:26:36,763 step 420 loss 2.4648 lr 6.72e-03 gnorm 0.21 rate 0.0686
+2026-11-06 21:26:43,987 step 440 loss 2.5531 lr 6.46e-03 gnorm 0.17 rate 0.0682
+2026-11-06 21:26:51,275 step 460 loss 2.3634 lr 6.12e-03 gnorm 0.15 rate 0.0681
+2026-11-06 21:26:58,509 step 480 loss 2.3460 lr 5.70e-03 gnorm 0.16 rate 0.0672
+2026-11-06 21:27:05,737 step 500 loss 2.3064 lr 5.24e-03 gnorm 0.18 rate 0.0666
+2026-11-06 21:27:12,968 step 520 loss 2.3403 lr 4.73e-03 gnorm 0.16 rate 0.0683
+2026-11-06 21:27:20,209 step 540 loss 2.2426 lr 4.19e-03 gnorm 0.14 rate 0.0675
+2026-11-06 21:27:27,426 step 560 loss 2.2937 lr 3.64e-03 gnorm 0.13 rate 0.0684
+2026-11-06 21:27:34,644 step 580 loss 2.2370 lr 3.09e-03 gnorm 0.14 rate 0.0686
+2026-11-06 21:27:41,913 step 600 loss 2.0584 lr 2.56e-03 gnorm 0.11 rate 0.0679
+2026-11-06 21:27:49,138 step 620 loss 2.0366 lr 2.07e-03 gnorm 0.12 rate 0.0688
+2026-11-06 21:27:56,367 step 640 loss 1.9805 lr 1.62e-03 gnorm 0.11 rate 0.0705
+2026-11-06 21:28:03,590 step 660 loss 2.0038 lr 1.24e-03 gnorm 0.11 rate 0.0693
+2026-11-06 21:28:10,853 step 680 loss 2.0236 lr 9.26e-04 gnorm 0.11 rate 0.0691
+2026-11-06 21:28:18,085 step 700 loss 1.9848 lr 6.95e-04 gnorm 0.10 rate 0.0705
+2026-11-06 21:28:25,316 step 720 loss 1.9826 lr 5.52e-04 gnorm 0.10 rate 0.0688
+2026-11-06 21:28:32,548 step 740 loss 1.9737 lr 5.00e-04 gnorm 0.11 rate 0.0683
+---
+val_ppl:            109.388881
+val_loss:           4.694909
+spike_rate:         0.069727
+rate_ok:            yes
+rate_in_proj:       0.063818
+rate_out_proj:      0.072681
+T:                  4
+num_steps:          740
+training_seconds:   293.9
+total_seconds:      296.0
+peak_vram_mb:       19972.4

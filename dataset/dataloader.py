@@ -3,7 +3,7 @@
 `RandomFaultTolerantSampler` and `FaultTolerantDistributedSampler` below are copied
 unchanged from Dao-AILab/flash-attention, file
 training/src/datamodules/fault_tolerant_sampler.py at commit 34a06b9 (BSD-3-Clause, see
-LICENSE-flash-attention). They shuffle like torch's samplers, but `load_state_dict` can
+licenses/LICENSE-flash-attention). They shuffle like torch's samplers, but `load_state_dict` can
 skip the samples of an epoch that a run already trained on, so a restart continues
 mid-epoch.
 

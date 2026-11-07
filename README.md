@@ -25,8 +25,12 @@ utils/         checkpoint.py, run_files.py, distributed.py
 train.py       train loop and the `train` command
 eval.py        validation loss and the `eval` command
 test.py        text generation from a checkpoint
-LICENSE-mamba, AUTHORS-mamba   license and authors of the upstream Mamba files
-LICENSE-flash-attention        license of the FlashAttention data code
+spiking_mamba3.py  spiking Mamba-3 (PLIF before in_proj/out_proj); the file the autoresearch agent edits
+program.md     instructions for the autoresearch agent
+notebooks/     dataloader-end-to-end.ipynb: the data pipeline step by step
+scripts/       prepare_wikitext2.py: WikiText-2 parquet -> token .bin files
+licenses/      LICENSE-mamba, AUTHORS-mamba (upstream Mamba), LICENSE-flash-attention (data code)
+reports/       results of autoresearch runs (autoresearch-nov6/: report, results.tsv, run.log)
 runs/          outputs, git-ignored
 ```
 
@@ -34,7 +38,7 @@ runs/          outputs, git-ignored
 
 - Repository: https://github.com/state-spaces/mamba
 - Commit: `e9594ce1c732d97440f0332fdc43170a2294dbfa`
-- License: Apache-2.0, see `LICENSE-mamba`. Authors in `AUTHORS-mamba`.
+- License: Apache-2.0, see `licenses/LICENSE-mamba`. Authors in `licenses/AUTHORS-mamba`.
 - Our only change: the import lines and the file paths. `mamba_ssm.ops.` became
   `models.kernels.`, `mamba_ssm.modules.` became `models.layers.`, and `mamba_ssm.utils.` became `utils.`. The check at the end of this file proves nothing else changed.
 
@@ -62,7 +66,7 @@ SISO decoding without it, call `mamba3_siso_step` directly with the four saved s
 
 The Mamba repository has no data or training code; its authors point to the training code of
 FlashAttention (state-spaces/mamba issue #1). Two classes are copied unchanged from
-Dao-AILab/flash-attention at commit `34a06b9` (BSD-3-Clause, see `LICENSE-flash-attention`):
+Dao-AILab/flash-attention at commit `34a06b9` (BSD-3-Clause, see `licenses/LICENSE-flash-attention`):
 
 | Here | FlashAttention file |
 |---|---|
@@ -126,7 +130,7 @@ while read -r ours up; do
     | cmp -s - <(git -C "$UP" show "e9594ce:$up") || echo "DIFFERS: $ours"
   n=$((n + 1))
 done < <(
-  echo "LICENSE-mamba LICENSE"; echo "AUTHORS-mamba AUTHORS"
+  echo "licenses/LICENSE-mamba LICENSE"; echo "licenses/AUTHORS-mamba AUTHORS"
   echo "models/layers/mamba3.py mamba_ssm/modules/mamba3.py"
   echo "models/layers/block.py mamba_ssm/modules/block.py"
   echo "models/layers/mlp.py mamba_ssm/modules/mlp.py"

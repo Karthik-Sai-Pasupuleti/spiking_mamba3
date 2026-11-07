@@ -2,14 +2,14 @@
 # Same model as configs/mamba3-siso-187m-scratch.yaml; only data, batch and schedule differ.
 # WikiText-2 has 2.4M training tokens, so a 187M model memorizes it within a few epochs:
 # expect val_loss to reach its minimum and then rise while train_loss keeps falling.
-# Make the data first (see prepare_wikitext2.py), then run
+# Make the data first (see scripts/prepare_wikitext2.py), then run
 #   .venv/bin/python train.py --config configs/mamba3-siso-187m-wikitext2.yaml
 
 run_name: mamba3-siso-187m-wikitext2
 seed: 0                        # NOT IN PAPER
 
 data:
-  train_bin: data-wikitext2/train.bin    # 2,435,651 tokens, 629 articles (prepare_wikitext2.py)
+  train_bin: data-wikitext2/train.bin    # 2,435,651 tokens, 629 articles (scripts/prepare_wikitext2.py)
   val_bin: data-wikitext2/validation.bin  # 252,785 tokens, 60 articles
   seq_len: 1024                # NOT IN PAPER: half of [M3]'s 2048, for 2x more samples (2,378)
   val_samples: 246             # all of validation.bin: (252,785 - 1) // 1024 = 246 samples

@@ -10,7 +10,7 @@ end-of-text token. Here a document is one Wikipedia article. A new article start
 level-1 heading line such as " = Robert Boulter = ". The raw text is kept as it is,
 including WikiText's own spacing (" @-@ ", spaces before punctuation).
 
-Run: .venv/bin/python prepare_wikitext2.py --tokenizer <path to Llama-3.1 tokenizer.json>
+Run from the project root: .venv/bin/python -m scripts.prepare_wikitext2 --tokenizer <path to Llama-3.1 tokenizer.json>
 """
 
 import argparse

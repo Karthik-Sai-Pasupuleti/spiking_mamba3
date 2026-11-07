@@ -1,0 +1,71 @@
+commit	val_ppl	spike_rate	memory_gb	status	description
+2de3d1f	155.553179	0.056158	8.4	keep	baseline T=4 tau 2.0 v_th 1.0 no KD
+c5b1a03	163.353710	0.155909	8.4	discard	v_th 0.5
+d80297b	141.502209	0.058359	19.4	keep	KD 0.5 T_kd 1.0
+727a280	142.138307	0.060305	19.4	discard	KD 0.8
+6d50c78	148.378382	0.065113	19.4	discard	KD temperature 2.0
+4f1f206	143.711470	0.053787	19.4	discard	soft reset (v_reset None)
+2d7dbf6	146.161908	0.069120	19.8	discard	T=8
+b322315	142.457610	0.045205	19.2	discard	T=2 (near tie, cheaper)
+ebdd8d3	140.805135	0.055923	19.4	keep	weight decay 0.3
+87a7a01	143.346719	0.051334	19.4	discard	weight decay 1.0
+089ea02	140.258853	0.056470	19.8	keep	selective input scale softplus rank 32 (idea 5)
+ee06189	142.647286	0.053939	19.8	discard	neuron LR x10 (tau and input scale)
+166c7b9	148.938461	0.131787	19.8	discard	decay_input False
+d714732	145.660446	0.033169	19.8	discard	v_th 1.5
+aae4da5	139.497496	0.067617	19.8	keep	ATan alpha 1.0 (wider surrogate)
+bb7e852	142.173364	0.093668	19.8	discard	ATan alpha 0.5
+f7657de	128.569250	0.073511	19.8	keep	peak LR 1.5e-3
+9871058	122.610962	0.085297	19.8	keep	peak LR 2.5e-3
+348953e	120.936326	0.096712	19.8	keep	peak LR 4e-3
+e33ce99	154.646523	0.167746	19.8	discard	peak LR 6e-3 (unstable, out_proj rate up)
+fecbbe1	116.853172	0.083539	19.8	keep	warmup 10%
+b10f98d	114.607015	0.083175	19.8	keep	warmup 20%
+6747450	114.539732	0.082125	19.8	keep	peak LR 5e-3 (tie with 4e-3)
+917abc0	112.348952	0.086676	19.8	keep	warmup 30%
+a4c01c6	112.198408	0.085461	19.8	keep	warmup 50% (tie with 30%)
+bdcd247	112.263352	0.087579	19.4	keep	remove selective scale: 112.26 vs 112.20 with it (equal, simpler)
+db48d95	112.218700	0.095020	19.4	keep	weight decay back to 0.1 (tie, default value)
+e0bf840	116.543455	0.093463	19.4	discard	KD 0.7
+db490d0	114.401870	0.093151	19.4	discard	KD 0.3
+38e8dc7	113.849963	0.083283	19.2	discard	T=2 at tuned schedule
+6f917a9	111.518039	0.094973	19.4	keep	min LR 1e-4
+fb7084e	111.102463	0.096447	19.4	keep	min LR 5e-4
+cd70382	116.981096	0.147762	19.4	discard	v_th 0.75
+788056a	115.875851	0.128843	19.4	discard	init tau 1.5
+0766443	111.791003	0.079072	19.4	discard	init tau 3.0 (lower rate 0.079, ppl within noise)
+b878465	112.338662	0.084952	19.5	discard	RMSNorm before out_proj neuron
+5e72ca6	111.769824	0.097260	19.4	discard	min LR 1e-3
+d2fa6c8	110.888518	0.080850	19.4	keep	ATan alpha 1.5
+7b9c72b	110.988535	0.074203	19.4	keep	default ATan alpha 2.0: 110.99 vs 110.89 (equal, removes knob)
+ed4b8bd	111.579252	0.066162	19.4	discard	soft reset at tuned schedule
+e6585f4	113.177815	0.073751	19.4	discard	label smoothing 0.1
+f064ea0	110.313174	0.060881	19.4	keep	AdamW beta2 0.99
+3d9ff8d	112.402502	0.055642	19.4	discard	AdamW beta2 0.999
+f0d14f2	109.982532	0.063807	19.4	keep	grad clip 0.5
+c84fa3e	110.353647	0.063502	19.4	discard	grad clip 0.25
+898e3b8	110.142452	0.065703	19.4	discard	detach_reset False (tie)
+95bd76c	121.460501	0.065850	19.4	discard	KD annealed 0.5 -> 0 (KD matters late)
+1796681	113.560080	0.063552	19.4	discard	KD ramped 0.25 -> 0.75
+06b39f2	109.889651	0.064486	19.4	keep	peak LR 7e-3 (stable with 50% warmup, clip 0.5)
+9ed3506	110.179153	0.064251	19.4	discard	peak LR 1e-2 (tie)
+3cfbf42	109.723109	0.074015	19.6	discard	T=6: 109.72 vs 109.89 (noise), 1.7x spikes per token
+5c7aa78	109.703948	0.058521	19.7	discard	sigmoid gate rank 32: 109.70 (noise), rate 0.059; not worth the code
+06b39f2	109.983668	0.064594	19.4	discard	noise check: rerun of best commit unchanged (109.89 before)
+abf6ec8	110.819834	0.065689	19.5	discard	dropout 0.1 on neuron input
+dbee178	110.610622	0.064517	19.6	discard	EMA of weights 0.99 for eval
+e41daa3	114.038005	0.067719	19.4	discard	KD temperature 1.5
+fc64638	110.906554	0.062153	19.4	discard	KD temperature 0.8
+3ad4f06	108.352770	0.092471	20.2	discard	PROBE ON/OFF pair: 108.35 (-1.5 vs best) but rule-ambiguous + 2.9x spikes/channel; patch saved for human review
+8169b0f	109.381710	0.065305	19.4	keep	learnable per-channel gain before out_proj neuron
+ec109dd	108.993167	0.084075	19.4	keep	out_proj gain init 2.0
+7c3644c	114.724495	0.098416	19.4	discard	out_proj gain init 3.0
+84f12c0	113.475796	0.110623	19.4	discard	out_proj fixed v_th 0.5 instead of learnable gain
+ab9fa2c	108.429178	0.076490	19.4	keep	out_proj gain init 1.5
+f27fda9	108.520196	0.077978	19.4	discard	per-channel input shift (tie 108.52)
+cbc2f85	109.162637	0.079083	19.4	discard	Sigmoid surrogate (alpha 4)
+92f8ab3	108.949627	0.072702	19.4	discard	out_proj init tau 2.5
+1aa5d9a	114.421103	0.104387	19.4	discard	in_proj learnable gain init 1.25
+60290c8	109.881715	0.055385	19.4	discard	in_proj learnable gain init 0.85
+08100a6	109.749486	0.068204	19.3	discard	T=3 with out_proj gain
+77997e4	109.388881	0.069727	19.5	discard	sigmoid gate at out_proj only (idea 5): 109.39

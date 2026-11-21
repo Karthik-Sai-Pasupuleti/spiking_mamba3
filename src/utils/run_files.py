@@ -27,6 +27,10 @@ METRIC_COLUMNS = [
     "lr",
     "grad_norm",
     "tokens_per_s",
+    # Spiking models only, on validation steps; empty otherwise.
+    "spike_rate",
+    "spike_rate_in_proj",
+    "spike_rate_out_proj",
 ]
 
 
@@ -86,11 +90,17 @@ class MetricsCSV:
             self.writer.writerow(METRIC_COLUMNS)
 
     def write(self, row: dict[str, float]) -> None:
-        """Write one row. Floats keep 5 significant digits; integers stay as they are."""
+        """Write one row. Floats keep 5 significant digits; integers stay as they are.
+
+        A column missing from `row` is written as an empty field.
+        """
         values = []
         for column in METRIC_COLUMNS:
-            value = row[column]
-            values.append(f"{value:.5g}" if isinstance(value, float) else str(value))
+            value = row.get(column)
+            if value is None:
+                values.append("")
+            else:
+                values.append(f"{value:.5g}" if isinstance(value, float) else str(value))
         self.writer.writerow(values)
         self.file.flush()
 

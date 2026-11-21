@@ -1,7 +1,7 @@
 """Validation: next-token loss and perplexity of a model on token samples.
 
 `next_token_loss` is also the training loss. Run as a script, it loads a checkpoint and
-reports the validation loss: `python eval.py --config <yaml> --checkpoint <pt>`.
+reports the validation loss: `python src/eval.py --config <yaml> --checkpoint <pt>`.
 """
 
 import argparse
@@ -52,6 +52,7 @@ def main() -> None:
     from dataset.dataloader import build_val_loader
     from dataset.dataset import LMDataset, load_tokens
     from models.model import MambaLMHeadModel, MambaConfig
+    import spiking_mamba3  # noqa: F401  registers the "SpikingMamba3" layer for configs
     from utils.checkpoint import load_model_state
 
     parser = argparse.ArgumentParser(description=__doc__)

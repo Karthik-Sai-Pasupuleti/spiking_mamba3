@@ -1,8 +1,8 @@
 """Pretraining: learning-rate schedule, optimizer, train loop, and the `train` command.
 
-Run it with `python train.py --config configs/<name>.yaml [--smoke]
-[--run-dir runs/<name>]`, or with `torchrun --standalone --nproc_per_node=N -m
-train ...` for several GPUs. With `--run-dir` the run uses one fixed folder
+Run it from the repo root with `python src/train.py --config configs/<name>.yaml
+[--smoke] [--run-dir runs/<name>]`, or with `torchrun --standalone --nproc_per_node=N
+src/train.py ...` for several GPUs. With `--run-dir` the run uses one fixed folder
 and resumes from its `last.pt`.
 
 The loop does no file I/O. It gets its micro-batches from an iterator and reports metrics
@@ -17,6 +17,7 @@ import argparse
 import logging
 import math
 import random
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import nullcontext
 from pathlib import Path
@@ -29,6 +30,8 @@ import torch.distributed as dist
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from configs.config import load_config
 from dataset.dataloader import (
@@ -42,6 +45,8 @@ from dataset.dataloader import (
 from dataset.dataset import LMDataset, load_tokens
 from eval import mean_loss, next_token_loss
 from models.model import MambaLMHeadModel, MambaConfig
+# Importing spiking_mamba3 also registers the "SpikingMamba3" layer for configs.
+from spiking_mamba3 import spike_rates, start_spike_count
 from utils.checkpoint import load_checkpoint, save_checkpoint
 from utils.distributed import close_distributed, init_distributed
 from utils.run_files import (
@@ -51,6 +56,7 @@ from utils.run_files import (
     setup_logging,
     write_config,
 )
+from utils.tracking import MLflowTracker
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +111,30 @@ def non_finite_grads(model: nn.Module) -> list[str]:
     ]
 
 
+def epoch_bar(plan: TrainPlan, step: int, show: bool) -> tqdm:
+    """Log "epoch e/E" and return a progress bar over the steps of the epoch of `step`.
+
+    The bar starts at the steps of this epoch already done (more than 0 after a resume).
+    The last epoch can be shorter when `max_steps` cuts the run. With `show` False (all
+    ranks but 0) nothing is logged and the bar is hidden; tqdm also hides it when the
+    output is not a terminal, so redirected logs get no bar lines.
+    """
+    epoch = step // plan.steps_per_epoch
+    n_epochs = math.ceil(plan.total_steps / plan.steps_per_epoch)
+    epoch_start = epoch * plan.steps_per_epoch
+    epoch_steps = min(plan.steps_per_epoch, plan.total_steps - epoch_start)
+    if show:
+        logger.info("epoch %d/%d: %d steps", epoch + 1, n_epochs, epoch_steps)
+    return tqdm(
+        total=epoch_steps,
+        initial=step - epoch_start,
+        desc=f"epoch {epoch + 1}/{n_epochs}",
+        unit="step",
+        disable=None if show else True,
+        dynamic_ncols=True,
+    )
+
+
 def pretrain(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -118,16 +148,20 @@ def pretrain(
     inspect: Callable[[nn.Module, int], None] | None = None,
     rank: int = 0,
     world_size: int = 1,
+    best_val_loss: float = math.inf,
 ) -> None:
     """Train from `start_step` to `plan.total_steps`, with the config sections `data`,
     `optim` and `train`.
 
-    Every `log_every` steps it calls `log_metrics`, with validation every `val_every`
-    steps. If `inspect` is given, it is called on the same steps as `inspect(model, step)`
-    right after the backward pass, so the gradients are still raw (not yet clipped).
-    Every `save_every` steps it calls `save("last.pt", payload)` with model, optimizer and
-    step, and at the end `save("final.pt", payload)`. Raises RuntimeError on the first
-    step with a non-finite gradient norm, before the optimizer step.
+    Every `log_every` steps and at the end of every epoch it calls `log_metrics`, with
+    validation every `val_every` steps and at the end of every epoch. If `inspect` is
+    given, it is called on the same steps as `inspect(model, step)` right after the
+    backward pass, so the gradients are still raw (not yet clipped). Every `save_every`
+    steps it calls `save("last.pt", payload)` with model, optimizer and step, and at the
+    end `save("final.pt", payload)`. At the end of an epoch whose validation loss is lower
+    than `best_val_loss` (the best so far; pass it when resuming), it calls
+    `save("best.pt", payload)` with model, step, epoch and val_loss. Raises RuntimeError
+    on the first step with a non-finite gradient norm, before the optimizer step.
 
     `train_batches` yields this GPU's micro-batches from `start_step` on (see
     `dataset.dataloader.micro_batches`); each step takes `batch_size // (micro_batch_size x
@@ -152,9 +186,13 @@ def pretrain(
     is_ddp = isinstance(model, DistributedDataParallel)
     core = model.module if is_ddp else model  # the plain model, for eval and saving
 
+    n_epochs = math.ceil(plan.total_steps / plan.steps_per_epoch)
     model.train()
-    window_start = perf_counter()
+    window_start, window_steps = perf_counter(), 0
+    progress = None
     for step in range(start_step, plan.total_steps):
+        if progress is None or step % plan.steps_per_epoch == 0:
+            progress = epoch_bar(plan, step, show=rank == 0)
         lr = lr_at(
             step, plan.total_steps, plan.warmup_steps, ocfg["peak_lr"], ocfg["min_lr"]
         )
@@ -173,7 +211,9 @@ def pretrain(
                 loss.backward()
             step_loss += loss.detach()
         done = step + 1
-        log_step = done % tcfg["log_every"] == 0 or done == plan.total_steps
+        epoch = step // plan.steps_per_epoch + 1
+        epoch_end = done % plan.steps_per_epoch == 0 or done == plan.total_steps
+        log_step = done % tcfg["log_every"] == 0 or epoch_end
         if inspect is not None and log_step and rank == 0:
             inspect(core, done)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), ocfg["grad_clip"])
@@ -185,34 +225,63 @@ def pretrain(
                 f"{len(bad)} parameters with NaN/inf gradients: {bad[:10]}"
             )
         optimizer.step()
+        progress.update(1)
+        window_steps += 1
 
         if log_step and world_size > 1:
             dist.all_reduce(step_loss, op=dist.ReduceOp.AVG)  # all ranks, same steps
         if log_step and rank == 0:
             loss_value = step_loss.item()
             elapsed = perf_counter() - window_start
-            tokens_per_s = tcfg["log_every"] * tokens_per_step / elapsed
+            tokens_per_s = window_steps * tokens_per_step / elapsed
             val_loss = float("nan")
-            if done % tcfg["val_every"] == 0 or done == plan.total_steps:
+            rates: dict[str, float] = {}
+            if done % tcfg["val_every"] == 0 or epoch_end:
+                start_spike_count(core)  # counted during the validation pass
                 val_loss = mean_loss(core, val_loader, dtype)
-            log_metrics(
-                {
-                    "step": done,
-                    "tokens_seen": done * tokens_per_step,
-                    "train_loss": loss_value,
-                    "val_loss": val_loss,
-                    "val_ppl": math.exp(val_loss),
-                    "lr": lr,
-                    "grad_norm": grad_norm.item(),
-                    "tokens_per_s": tokens_per_s,
-                }
-            )
+                rates = spike_rates(core)  # empty for a dense model
+            new_best = epoch_end and val_loss < best_val_loss  # NaN is never a new best
+            if new_best:
+                best_val_loss = val_loss
+            # Epoch ends only; MLflow logs it, metrics.csv has no such column.
+            best = {"best_val_loss": best_val_loss} if epoch_end else {}
+            row = {
+                "step": done,
+                "tokens_seen": done * tokens_per_step,
+                "train_loss": loss_value,
+                "val_loss": val_loss,
+                "val_ppl": math.exp(val_loss),
+                "lr": lr,
+                "grad_norm": grad_norm.item(),
+                "tokens_per_s": tokens_per_s,
+            }
+            log_metrics({**row, **rates, **best})
             logger.info(
-                "step %d/%d loss %.4f val %.4f lr %.2e gnorm %.2f %.0f tok/s",
-                done, plan.total_steps, loss_value, val_loss, lr, grad_norm.item(),
-                tokens_per_s,
+                "epoch %d/%d step %d/%d loss %.4f val %.4f lr %.2e gnorm %.2f %.0f tok/s",
+                epoch, n_epochs, done, plan.total_steps,
+                loss_value, val_loss, lr, grad_norm.item(), tokens_per_s,
             )
-            window_start = perf_counter()
+            if rates:
+                logger.info(
+                    "spike rate %.4f (in_proj %.4f, out_proj %.4f)", rates["spike_rate"],
+                    rates["spike_rate_in_proj"], rates["spike_rate_out_proj"],
+                )
+            if new_best:
+                save(
+                    "best.pt",
+                    {"model": core.state_dict(), "step": done, "epoch": epoch,
+                     "val_loss": val_loss},
+                )
+                logger.info(
+                    "epoch %d: new best val loss %.4f, saved best.pt", epoch, val_loss
+                )
+            elif epoch_end:
+                logger.info(
+                    "epoch %d: val loss %.4f, best stays %.4f",
+                    epoch, val_loss, best_val_loss,
+                )
+            progress.set_postfix(loss=f"{loss_value:.4f}", lr=f"{lr:.2e}")
+            window_start, window_steps = perf_counter(), 0
         if done % tcfg["save_every"] == 0 and done < plan.total_steps and rank == 0:
             payload = {
                 "model": core.state_dict(),
@@ -220,6 +289,8 @@ def pretrain(
                 "step": done,
             }
             save("last.pt", payload)
+        if epoch_end:
+            progress.close()
 
     if rank == 0:
         save("final.pt", {"model": core.state_dict(), "step": plan.total_steps})
@@ -270,37 +341,63 @@ def main() -> None:
             model.load_state_dict(state["model"])
             optimizer.load_state_dict(state["optimizer"])
             start_step = state["step"]
+        # On resume, keep comparing against the best epoch so far, not against infinity.
+        best_val_loss = math.inf
+        best_path = run_dir / "best.pt"
+        if start_step > 0 and best_path.exists():
+            best_val_loss = load_checkpoint(best_path, device="cpu")["val_loss"]
+        tracker = None
         if info.is_main:
-            write_config(
-                run_dir / "config.json",
-                {
-                    "config": cfg,
-                    "environment": environment_info(),
-                    "world_size": info.world_size,
-                    "train_samples": len(train),
-                    "steps_per_epoch": plan.steps_per_epoch,
-                    "total_steps": plan.total_steps,
-                    "start_step": start_step,
-                    "n_params": sum(p.numel() for p in model.parameters()),
-                },
-            )
+            record = {
+                "config": cfg,
+                "environment": environment_info(),
+                "world_size": info.world_size,
+                "train_samples": len(train),
+                "steps_per_epoch": plan.steps_per_epoch,
+                "total_steps": plan.total_steps,
+                "start_step": start_step,
+                "n_params": sum(p.numel() for p in model.parameters()),
+            }
+            write_config(run_dir / "config.json", record)
             logger.info("%s: %d steps, starting at %d", cfg["run_name"], plan.total_steps, start_step)
+            tracker = MLflowTracker(run_dir, experiment=cfg["run_name"])
+            tracker.log_start(args.config, record, sys.argv)
         wrapped: nn.Module = model
         if info.world_size > 1:
             wrapped = DistributedDataParallel(model, device_ids=[info.local_rank])
 
         metrics = MetricsCSV(run_dir / "metrics.csv") if info.is_main else None
+
+        def log_row(row: dict[str, float]) -> None:
+            """Write one metrics row to metrics.csv and to MLflow (rank 0 only)."""
+            if metrics:
+                metrics.write(row)
+            if tracker:
+                tracker.log_metrics(row)
+
         train_batches = micro_batches(train_loader, sampler, plan, start_step, per_rank_step)
-        pretrain(
-            wrapped, optimizer, plan, train_batches, val_loader, cfg,
-            log_metrics=metrics.write if metrics else (lambda row: None),
-            save=lambda name, payload: save_checkpoint(run_dir / name, payload),
-            start_step=start_step,
-            rank=info.rank,
-            world_size=info.world_size,
-        )
-        if metrics:
-            metrics.close()
+        status = "FAILED"
+        try:
+            # Terminal log lines go through tqdm, so they print above the progress bar.
+            with logging_redirect_tqdm():
+                pretrain(
+                    wrapped, optimizer, plan, train_batches, val_loader, cfg,
+                    log_metrics=log_row,
+                    save=lambda name, payload: save_checkpoint(run_dir / name, payload),
+                    start_step=start_step,
+                    rank=info.rank,
+                    world_size=info.world_size,
+                    best_val_loss=best_val_loss,
+                )
+            status = "FINISHED"
+        except KeyboardInterrupt:
+            status = "KILLED"
+            raise
+        finally:
+            if metrics:
+                metrics.close()
+            if tracker:
+                tracker.finish(status)
     finally:
         close_distributed()
 

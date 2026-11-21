@@ -1,6 +1,6 @@
 """Inference check: generate text from a checkpoint, one token at a time.
 
-Run it with `python test.py --config <yaml> --checkpoint <pt> --tokenizer
+Run it with `python src/test.py --config <yaml> --checkpoint <pt> --tokenizer
 <tokenizer.json> --prompt "..."`.
 
 Extend a token sequence one token at a time.

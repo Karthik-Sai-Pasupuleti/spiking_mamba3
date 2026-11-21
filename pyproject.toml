@@ -4,13 +4,16 @@ version = "0.1.0"
 description = "Mamba-3 from state-spaces/mamba, with a language model and training code"
 readme = "README.md"
 requires-python = ">=3.12"
-# torch, triton, einops: the upstream Mamba-3 SISO files in models/ and utils/ (see README)
+# torch, triton, einops: the upstream Mamba-3 SISO files in src/models/ and src/utils/ (see README)
 # (from state-spaces/mamba@e9594ce), with upstream's version bounds. Triton runs all SISO kernels.
 # The TileLang (MIMO) and CuTe (Mamba3.step) kernels are copied too, but they need the optional
-# extra `mimo` below; without it Mamba3 still runs SISO. packaging is imported by utils/determinism.py (fused norm).
+# extra `mimo` below; without it Mamba3 still runs SISO. packaging is imported by src/utils/determinism.py (fused norm).
 # numpy, pyyaml and tokenizers are for our code: numpy memory-maps the token files, pyyaml
-# reads configs/, tokenizers reads the Llama-3.1 tokenizer.json for text generation.
-# spikingjelly provides the PLIF neuron (ParametricLIFNode) of spiking_mamba3.py.
+# reads configs/, tokenizers reads the Llama-3.1 tokenizer.json for data and text generation,
+# pyarrow reads the WikiText-103 parquet files in src/prepare_wikitext103.py.
+# spikingjelly provides the PLIF neuron (ParametricLIFNode) of src/spiking_mamba3.py.
+# tqdm draws the per-epoch progress bar of src/train.py (spikingjelly needs it too).
+# mlflow tracks every training run (src/utils/tracking.py): config, git commit, metrics, logs.
 dependencies = [
     "torch",
     "triton>=3.5.0",
@@ -19,13 +22,17 @@ dependencies = [
     "numpy",
     "pyyaml",
     "tokenizers",
+    "pyarrow",
     "spikingjelly",
+    "tqdm",
+    "mlops>=0.1.0",
+    "mlflow>=3.18.0",
 ]
 
 [project.optional-dependencies]
 # ipykernel runs notebooks/ on this venv, nbconvert executes them from the command line,
-# matplotlib draws their plots, pyarrow reads the FineWeb-Edu parquet files.
-dev = ["pytest", "ipykernel", "nbconvert", "matplotlib", "pyarrow"]
+# matplotlib draws their plots.
+dev = ["pytest", "ipykernel", "nbconvert", "matplotlib"]
 # Upstream's pins for the TileLang MIMO kernels and the CuTe step kernel (Mamba3.step).
 mimo = ["tilelang==0.1.8", "apache-tvm-ffi<=0.1.12", "quack-kernels>=0.3.4"]
 
@@ -51,18 +58,23 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["configs", "dataset", "models", "utils"]
+packages = ["src/configs", "src/dataset", "src/models", "src/utils"]
 
 # Upstream copies (only their imports changed): never reformat them.
 [tool.ruff]
 extend-exclude = [
-    "models/kernels/triton",
-    "models/layers/mamba3.py",
-    "models/layers/block.py",
-    "models/layers/mlp.py",
-    "utils/determinism.py",
-    "utils/torch.py",
+    "src/models/kernels/triton",
+    "src/models/layers/mamba3.py",
+    "src/models/layers/block.py",
+    "src/models/layers/mlp.py",
+    "src/utils/determinism.py",
+    "src/utils/torch.py",
 ]
 
 [tool.black]
-force-exclude = "^/(models/kernels/triton/|models/layers/(mamba3|block|mlp)\\.py|utils/(determinism|torch)\\.py)"
+force-exclude = "^/src/(models/kernels/triton/|models/layers/(mamba3|block|mlp)\\.py|utils/(determinism|torch)\\.py)"
+
+[tool.pytest.ini_options]
+# src/ on sys.path for `dataset`, `models`, ...; the repo root for `scripts.prepare_fineweb`.
+pythonpath = ["src", "."]
+testpaths = ["tests"]

@@ -1,0 +1,62 @@
+# Dense Mamba-3 SISO 61M on WikiText-103 (raw), trained from scratch, context length 2048: the
+# baseline for configs/mamba3-siso-61m-wikitext103-spiking.yaml. Identical in data, model size,
+# optimizer, schedule and seed; only the mixer differs (plain Mamba3, no PLIF neurons). Sources:
+# [M3] Mamba-3 paper (arXiv 2603.15569), [M2] Mamba-2 paper
+# (arXiv 2405.21060) App. D.2. "NOT IN PAPER" marks a choice the papers leave open.
+# Make the data once, then train:
+#   .venv/bin/python src/prepare_wikitext103.py --tokenizer <Llama-3.1 tokenizer.json>
+#   .venv/bin/python src/train.py --config configs/mamba3-siso-61m-wikitext103-dense.yaml
+
+run_name: mamba3-siso-61m-wikitext103-dense
+seed: 0                        # NOT IN PAPER
+
+data:
+  train_bin: data/wikitext103/train.bin       # 120,117,855 tokens, 29,444 articles
+  val_bin: data/wikitext103/validation.bin    # 252,785 tokens, 60 articles
+  seq_len: 2048                # [M3 sec. 4.1]; (120,117,855 - 1) // 2048 = 58,651 train samples
+  val_samples: 123             # all of validation.bin: (252,785 - 1) // 2048 = 123 samples
+  num_workers: 1               # DataLoader workers; FlashAttention uses 1 (the data is a memory map)
+
+model:                         # MambaConfig fields; width and depth NOT IN PAPER
+  d_model: 384                 # half of 187M's 768
+  d_intermediate: 768          # 2 x d_model, as in 187M
+  n_layer: 6                   # half of 187M's 12; 60.6M params, 49.3M of them the tied embedding
+  vocab_size: 128256           # Llama-3.1 tokenizer
+  ssm_cfg:
+    layer: Mamba3
+    d_state: 128               # [M3 App. D]
+    expand: 2                  # [M3 App. D]
+    headdim: 64                # [M3 App. D]
+    ngroups: 1
+    rope_fraction: 0.5
+    dt_min: 0.001
+    dt_max: 0.1
+    dt_init_floor: 0.0001
+    A_floor: 0.0001
+    chunk_size: 64
+    is_mimo: false
+    is_outproj_norm: false
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  pad_vocab_size_multiple: 16
+  tie_embeddings: true
+
+optim:
+  peak_lr: 1.0e-3              # NOT IN PAPER, NOT TUNED: chosen for 16K-token steps; steps here
+                               # have 64K tokens, so a higher rate may be better
+  min_lr: 1.0e-5               # cosine decay target [M2 D.2]
+  betas: [0.9, 0.95]           # [M2 D.2]
+  weight_decay: 0.1            # [M2 D.2]; 2-D weight matrices only (NOT IN PAPER)
+  grad_clip: 1.0               # [M2 D.2]
+  warmup_fraction: 0.05        # NOT IN PAPER: 9,160 of 183,200 steps
+
+train:
+  epochs: 100                  # NOT IN PAPER: 100 x 120M = 12B tokens
+  batch_size: 32               # NOT IN PAPER: 32 x 2048 = 65,536 tokens per step, 1,832 steps per epoch
+  micro_batch_size: 4          # memory: 4 x 2048 used 15.5 GB (logits 4 x 2048 x 128,256 float32 = 4.2 GB)
+  max_steps: null              # null = all epochs: 100 x 1,832 = 183,200 steps
+  log_every: 10
+  val_every: 100               # 1,832 validations; must be a multiple of log_every (train.py validates on log steps only)
+  save_every: 1832             # last.pt once per epoch
+  dtype: bfloat16              # autocast; parameters stay float32 [M3 App. D: bf16]

@@ -1,0 +1,66 @@
+# Spiking Mamba-3 SISO 187M on WikiText-103 (raw), trained from scratch, context length 2048.
+# Same architecture as the official state-spaces/mamba3-siso-187m ([CK]), with SpikingMamba3
+# (src/spiking_mamba3.py): a PLIF neuron in front of in_proj and out_proj of every block.
+# Data and recipe as configs/mamba3-siso-61m-wikitext103-spiking.yaml, except the model size,
+# the peak LR, the epochs and the micro-batch. Sources: [M3] Mamba-3 paper (arXiv 2603.15569),
+# [M2] Mamba-2 paper (arXiv 2405.21060) App. D.2, [CK] config.json of
+# state-spaces/mamba3-siso-187m at revision 6792c27. "NOT IN PAPER" marks a choice the
+# papers leave open. Run:
+#   .venv/bin/python src/train.py --config configs/mamba3-siso-187m-wikitext103-spiking.yaml \
+#       --run-dir runs/mamba3-siso-187m-wikitext103-spiking
+
+run_name: mamba3-siso-187m-wikitext103-spiking
+seed: 0                        # NOT IN PAPER
+
+data:
+  train_bin: data/wikitext103/train.bin       # 120,117,855 tokens, 29,444 articles
+  val_bin: data/wikitext103/validation.bin    # 252,785 tokens, 60 articles
+  seq_len: 2048                # [M3 sec. 4.1]; (120,117,855 - 1) // 2048 = 58,651 train samples
+  val_samples: 123             # all of validation.bin: (252,785 - 1) // 2048 = 123 samples
+  num_workers: 1               # DataLoader workers; FlashAttention uses 1 (the data is a memory map)
+
+model:                         # [CK]; 186.8M params, 98.5M of them the tied embedding
+  d_model: 768
+  d_intermediate: 1536
+  n_layer: 12
+  vocab_size: 128256           # Llama-3.1 tokenizer
+  ssm_cfg:
+    layer: SpikingMamba3
+    plif_steps: 4              # PLIF steps per token (T)
+    plif_init_tau: 2.0         # initial membrane time constant (learnable)
+    plif_v_threshold: 1.0
+    d_state: 128               # [M3 App. D]
+    expand: 2                  # [M3 App. D]
+    headdim: 64                # [M3 App. D]
+    ngroups: 1
+    rope_fraction: 0.5
+    dt_min: 0.001
+    dt_max: 0.1
+    dt_init_floor: 0.0001
+    A_floor: 0.0001
+    chunk_size: 64
+    is_mimo: false
+    is_outproj_norm: false
+  rms_norm: true
+  residual_in_fp32: true
+  fused_add_norm: true
+  pad_vocab_size_multiple: 16
+  tie_embeddings: true
+
+optim:
+  peak_lr: 6.0e-4              # NOT IN PAPER, NOT TUNED: lower than the 61M's 1e-3 for the larger model
+  min_lr: 1.0e-5               # cosine decay target [M2 D.2]
+  betas: [0.9, 0.95]           # [M2 D.2]
+  weight_decay: 0.1            # [M2 D.2]; 2-D weight matrices only (NOT IN PAPER)
+  grad_clip: 1.0               # [M2 D.2]
+  warmup_fraction: 0.05        # NOT IN PAPER: 1,832 of 36,640 steps (1 epoch)
+
+train:
+  epochs: 20                   # NOT IN PAPER: 20 x 120M = 2.4B tokens; ~40 min per epoch on an RTX 5090
+  batch_size: 32               # NOT IN PAPER: 32 x 2048 = 65,536 tokens per step, 1,832 steps per epoch
+  micro_batch_size: 2          # memory: 2 x 2048 used ~24.5 GB; 4 ran out of memory on the 32 GB GPU
+  max_steps: null              # null = all epochs: 20 x 1,832 = 36,640 steps
+  log_every: 10
+  val_every: 100               # must be a multiple of log_every (train.py validates on log steps only)
+  save_every: 1832             # last.pt once per epoch
+  dtype: bfloat16              # autocast; parameters stay float32 [M3 App. D: bf16]

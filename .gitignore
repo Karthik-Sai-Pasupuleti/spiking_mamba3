@@ -12,3 +12,10 @@ __pycache__/
 /data-wikitext2
 results.tsv
 run.log
+/weights
+
+
+
+# MLflow tracking store (src/utils/tracking.py)
+mlflow.db
+/mlartifacts

@@ -15,8 +15,8 @@ spiking model and improve it by yourself, one experiment at a time, while the hu
    the memory along the sequence. The neuron state is reset for every token.
 3. **Validate with perplexity.** A spiking model trained with T = k steps is judged by its
    validation perplexity on WikiText-2, under a cap on its firing rate (see "The goal").
-4. **Knowledge distillation.** A frozen dense Mamba-3 61M teacher is available for logit
-   distillation (`KD_WEIGHT`, `KD_TEMPERATURE` in `spiking_mamba3.py`; off in the baseline).
+4. **Train from scratch.** The spiking model starts from random weights and learns with
+   next-token cross-entropy only. There is no teacher, no pretrained checkpoint and no distillation.
 5. **Selective decay and threshold.** Make the PLIF time constant and/or threshold depend on
    the token (computed from the neuron's input, like Mamba's input-dependent Δ), so that the
    neuron passes little to the Mamba block for filler tokens and acts as one more layer that
@@ -31,15 +31,14 @@ Do this once, together with the human, before the loop starts:
 2. **Create the branch**: `git checkout -b autoresearch/<tag>` from `master`.
 3. **Read the in-scope files** for full context:
    - `program.md`: these instructions.
-   - `spiking_mamba3.py`: the file you edit (spiking layer, training loop, summary).
-   - `models/layers/mamba3.py`: the upstream Mamba-3 layer that `SpikingMamba3` subclasses. Read only.
-   - `train.py`, `eval.py`, `dataset/dataset.py`, `dataset/dataloader.py`: optimizer, LR schedule,
-     the fixed evaluation and the data pipeline that `spiking_mamba3.py` imports. Read only.
+   - `src/spiking_mamba3.py`: the file you edit (spiking layer, training loop, summary).
+   - `src/models/layers/mamba3.py`: the upstream Mamba-3 layer that `SpikingMamba3` subclasses. Read only.
+   - `src/train.py`, `src/eval.py`, `src/dataset/dataset.py`, `src/dataset/dataloader.py`: optimizer, LR schedule,
+     the fixed evaluation and the data pipeline that `src/spiking_mamba3.py` imports. Read only.
    - `configs/mamba3-siso-61m-wikitext2.yaml`: the fixed model size, data, batch and step budget.
      Read only.
-4. **Verify data and teacher exist**: `data-wikitext2/train.bin`, `data-wikitext2/validation.bin`
-   and `runs/teacher-dense-61m-wikitext2/final.pt`. If any is missing, stop and tell the human
-   (data: run `prepare_wikitext2.py`; teacher: train the 61M config into that folder).
+4. **Verify the data exists**: `data/wikitext2/train.bin` and `data/wikitext2/validation.bin`.
+   If either is missing, stop and tell the human.
 5. **Initialize `results.tsv`** with only its header row (see "Logging results").
 6. **Confirm and go.**
 
@@ -49,24 +48,25 @@ Each experiment trains the spiking 61M model for a **fixed budget of 740 steps**
 WikiText-2, 16 samples x 1024 tokens per step, 12.1M tokens) on one GPU, then evaluates it on
 the full validation split. The baseline takes about 2.5 minutes. Launch it as:
 
-`.venv/bin/python spiking_mamba3.py > run.log 2>&1`
+`.venv/bin/python src/spiking_mamba3.py > run.log 2>&1`
 
 For a 20-step check that new code runs at all, add `--smoke` (about 30 s; its numbers mean nothing).
 
-**What you CAN do** (only in `spiking_mamba3.py`):
+**What you CAN do** (only in `src/spiking_mamba3.py`):
 - Change the neuron: PLIF details, T (1-8), tau and threshold (fixed, learnable or
   token-dependent), surrogate gradient, reset mode, initialization, input normalization in
   front of the neuron.
-- Change the training: the LR, schedule, warmup, weight decay, gradient clipping, the training
-  loss, and knowledge distillation with the fixed teacher.
+- Change the training: the LR, schedule, warmup, weight decay, gradient clipping and the
+  training loss.
 - Add new classes or functions to the file.
 
 **What you CANNOT do:**
-- Edit any file except `spiking_mamba3.py`. In particular, never edit the upstream Mamba-3
-  files (`models/layers/`, `models/kernels/`, `utils/determinism.py`, `utils/torch.py`), the
-  config, `train.py`, `eval.py` or `dataset/`. They define the model and the measurement.
-- Change the fixed parts of `spiking_mamba3.py`: the "Fixed" constants (`BASE_CONFIG`,
-  `TEACHER_CHECKPOINT`, `RATE_CAP`, `TOTAL_STEPS`, `OUTPUT_CHECKPOINT`), the function
+- Edit any file except `src/spiking_mamba3.py`. In particular, never edit the upstream Mamba-3
+  files (`src/models/layers/`, `src/models/kernels/`, `src/utils/determinism.py`, `src/utils/torch.py`), the
+  config, `src/train.py`, `src/eval.py` or `src/dataset/`. They define the model and the measurement.
+- Use a teacher model, pretrained weights or distillation. The spiking model trains from scratch.
+- Change the fixed parts of `src/spiking_mamba3.py`: the "Fixed" constants (`BASE_CONFIG`,
+  `RATE_CAP`, `TOTAL_STEPS`, `OUTPUT_CHECKPOINT`), the function
   `firing_rate_and_val_loss`, and the summary block that main() prints. Do not override the
   model size, data, seq_len, batch size, step count or validation set from the config.
 - Remove, bypass or move the neurons: they stay in front of `in_proj` and `out_proj`, and no
@@ -82,11 +82,10 @@ Reference points (same data, steps and evaluation):
 
 | Model | val_ppl | spike_rate |
 |---|---|---|
-| Dense Mamba-3 SISO 61M (the teacher) | 142.9 | — |
-| Spiking baseline: T=4, tau 2.0, v_th 1.0, no KD | 154.5 | 0.056 |
+| Dense Mamba-3 SISO 61M (reference only, also trained from scratch) | 142.9 | — |
+| Spiking baseline: T=4, tau 2.0, v_th 1.0 | 154.5 | 0.056 |
 
-**VRAM** is a soft limit. The GPU has 32 GB; the baseline uses 8.6 GB, distillation about
-20 GB (the student and teacher logits are each 4 x 1024 x 128,256 floats). Stay well below 32 GB.
+**VRAM** is a soft limit. The GPU has 32 GB; the baseline uses 8.6 GB. Stay well below 32 GB.
 
 **Simplicity criterion.** All else equal, simpler is better. A tiny gain that adds ugly code
 is not worth it; an equal result with less code is a win. Weigh the complexity of a change
@@ -96,7 +95,7 @@ against the size of the gain.
 
 ## Output format
 
-At the end, `spiking_mamba3.py` prints a summary block:
+At the end, `src/spiking_mamba3.py` prints a summary block:
 
 ```
 ---
@@ -151,9 +150,9 @@ The loop runs on the branch `autoresearch/<tag>`.
 LOOP FOREVER:
 
 1. Look at the git state: the current branch and commit.
-2. Change `spiking_mamba3.py` to test one idea.
+2. Change `src/spiking_mamba3.py` to test one idea.
 3. `git commit -am "<short description>"`.
-4. Run: `.venv/bin/python spiking_mamba3.py > run.log 2>&1`. Redirect everything; do not use
+4. Run: `.venv/bin/python src/spiking_mamba3.py > run.log 2>&1`. Redirect everything; do not use
    tee and do not print training logs into your context.
 5. Read the result: `grep "^val_ppl:\|^spike_rate:\|^rate_ok:\|^peak_vram_mb:" run.log`.
 6. If the grep is empty, the run crashed: `tail -n 50 run.log` shows the error. Fix it if it is
@@ -176,8 +175,8 @@ broken, log `crash` and move on.
 
 **NEVER STOP.** Once the loop has begun, do not pause to ask the human whether to continue, and
 do not ask "is this a good stopping point?". The human may be asleep and expects you to work
-until they stop you. If you run out of ideas, think harder: re-read `spiking_mamba3.py` and
-`models/layers/mamba3.py` for new angles, re-read "The idea" above, combine earlier near-misses,
+until they stop you. If you run out of ideas, think harder: re-read `src/spiking_mamba3.py` and
+`src/models/layers/mamba3.py` for new angles, re-read "The idea" above, combine earlier near-misses,
 or try a more radical neuron design. The loop runs until the human interrupts you, period.
 
 At about 2.5 minutes per experiment you can run about 20 per hour, about 150 in a night.
@@ -190,7 +189,6 @@ Not a plan, only a cold start. Use your judgement.
 - Threshold and tau: the baseline rate is only 5.6%; a lower `v_threshold` or a scaled input lets
   more information through while staying under the 20% cap.
 - A norm or a learnable gain in front of each neuron, so its input scale fits the threshold.
-- Distillation: `KD_WEIGHT` 0.3-0.7, `KD_TEMPERATURE` 1-2.
 - Selective (token-dependent) tau and threshold, idea 5: a small projection of the neuron input,
   passed through a softplus or sigmoid, per token and channel.
 - Surrogate gradient: ATan `alpha`, Sigmoid, a wider or narrower window.

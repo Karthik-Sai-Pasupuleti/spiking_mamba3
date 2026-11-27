@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>serial_triton explained</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --text: #1d2126; --muted: #5d6670; --line: #d9dce0;
+    --wait: #d9892b; --work: #1f8a7d; --old: #9aa3ad; --tape: #7a5cc4; --bad: #b8433a;
+    --code-bg: #f1efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181c; --panel: #1d2126; --text: #e8eaed; --muted: #a0a8b1; --line: #343a41;
+      --wait: #e6a04d; --work: #4fc0b2; --old: #6f7882; --tape: #a58fe6; --bad: #e0776e;
+      --code-bg: #262b31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 780px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 8px; }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin-bottom: 20px; }
+  .note { color: var(--muted); font-size: 0.9rem; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.88rem; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; margin: 10px 0; }
+  pre code { background: none; padding: 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 10px 0; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
+  .big div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .big b { display: block; font-size: 1.5rem; line-height: 1.2; }
+  .big span { color: var(--muted); font-size: 0.85rem; }
+  @media (max-width: 560px) { .big { grid-template-columns: 1fr; } }
+  .stepper { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 14px 0; }
+  #ttl { font-weight: 600; margin: 0 0 8px; }
+  #fig { min-height: 250px; }
+  #cap { min-height: 4.8em; margin: 8px 0 0; }
+  .nav { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+  .nav button {
+    font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); cursor: pointer;
+  }
+  #dots { display: flex; gap: 8px; flex: 1; justify-content: center; }
+  #dots span { width: 9px; height: 9px; border-radius: 50%; cursor: pointer; background: var(--line); }
+  #dots span.on { background: var(--text); }
+  svg text { fill: var(--text); font: 13px system-ui, sans-serif; }
+  svg .m { fill: var(--muted); }
+  .hit { color: var(--work); font-weight: 600; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>serial_triton: an exact LIF neuron over L tokens, 4.6 to 6.9 times faster</h1>
+<p class="sub">Prerequisites: the LIF neuron, the surrogate gradient, backpropagation through time.</p>
+
+<p>A LIF neuron that carries its membrane over all L tokens must run step by step. The reference
+kernel of SpikingJelly does this slowly. <code>serial_triton</code> keeps the same neuron and the same
+serial loop, and removes the time that the GPU spends on waits.</p>
+<p class="note">L is the number of tokens (2048 in the study). The repo uses T for the ticks per token, so this
+page uses L for the tokens.</p>
+
+<div class="big">
+  <div><b>2.847 → 0.415 ms</b><span>site <code>in</code> (D = 768), forward + backward, 6.9×</span></div>
+  <div><b>3.089 → 0.677 ms</b><span>site <code>out</code> (D = 1536), forward + backward, 4.6×</span></div>
+  <div><b>0 wrong spikes</b><span>bit-identical spikes and membrane on all three test inputs</span></div>
+</div>
+<p class="note">Measured on one RTX 5090 at <code>[L, B, D] = [2048, 16, D]</code>. Each time is the median of 10
+passes of one neuron site. Source: <code>REPORT.md</code>, section 1.</p>
+
+<h2>1. The neuron stays the same</h2>
+<p>These are the equations of SpikingJelly's <code>ParametricLIFNode</code> with a soft reset. Here
+<code>q = 1/tau</code> is the leak, and <code>theta</code> is the threshold.</p>
+<pre><code>h_t = v_{t-1} + (x_t - v_{t-1}) * q     charge
+s_t = 1 if h_t >= theta else 0          fire
+v_t = h_t - theta * s_t                 soft reset</code></pre>
+<p><code>serial_triton</code> computes these three lines in the same order, in float32. So the spikes cannot differ.
+The method is not a new neuron, and it is not parallel in time.</p>
+
+<h2>2. Why the reference kernel is slow</h2>
+<p>The reference kernel asks the memory for <code>x_t</code>, waits, computes one step, and then asks for
+<code>x_{t+1}</code>. The wait is about 0.4 µs per step in the forward pass and 0.95 µs in the backward pass.
+With 2048 steps the waits alone are about 2.8 ms.</p>
+<p>The proof is in the two sites. Site <code>out</code> has twice the data of site <code>in</code>, but the time
+is almost the same: 3.089 ms against 2.847 ms. A kernel that is limited by data would need twice the time.
+This kernel is limited by waits.</p>
+<p><b>Analogy (the filing cabinet).</b> A trip to the cabinet is slow. The reference kernel makes one trip per
+file. The new kernel asks for 32 files in one trip, and then works through them at the desk.</p>
+
+<h2>3. The three changes, step by step</h2>
+<p class="note">The toy numbers are made up: <code>q = 0.5</code>, <code>theta = 1</code>, 8 time steps, and the loss
+is the sum of the spikes. A script computed every toy value and checked the gradients against PyTorch autograd.</p>
+
+<div class="stepper">
+  <h3 class="sr">Eight steps: the neuron on toy numbers, the old kernel with one wait per step, the new kernel
+  with loads ahead, the tape, the 8-bit code, the backward pass, no second read of x, and the bytes per step.</h3>
+  <p id="ttl"></p>
+  <div id="fig" class="scroll"></div>
+  <p id="cap"></p>
+  <div class="nav">
+    <button id="prev">Back</button>
+    <div id="dots"></div>
+    <button id="next">Next</button>
+  </div>
+</div>
+
+<h2>4. Why training and inference do not slow down</h2>
+<p><b>The math is the same, so nothing must be learned again.</b> The forward pass is exact. On the real
+activations of all 12 blocks (24 neuron sites) the kernel gave 0 wrong spikes.</p>
+<p><b>The gradient stays close to the exact one.</b> With the 8-bit tape the cosine to SpikingJelly's gradient is
+0.9996 at <code>in</code> and 0.9997 at <code>out</code>. With the float32 tape it is 1.0000.</p>
+<p><b>The neuron now costs about three copies of its input.</b> A plain copy of the tensor takes 0.135 ms at
+<code>in</code> and 0.267 ms at <code>out</code>. The whole forward and backward pass of the neuron takes 0.415 ms
+and 0.677 ms. The kernels move bytes at 1.25 to 1.44 TB/s, and a plain copy reaches 1.4 to 1.5 TB/s.</p>
+
+<div class="scroll">
+<table>
+  <tr><th>forward + backward, ms</th><th>in</th><th>out</th><th>speed-up</th><th>gradient cosine</th></tr>
+  <tr><td>SpikingJelly fused kernel</td><td>2.847</td><td>3.089</td><td>1×</td><td>1.0000</td></tr>
+  <tr><td><code>serial_triton</code>, float32 tape</td><td>0.470</td><td>0.871</td><td>6.1× / 3.5×</td><td>1.0000</td></tr>
+  <tr><td><code>serial_triton</code>, float16 tape</td><td>0.447</td><td>0.743</td><td>6.4× / 4.2×</td><td>0.9998 / 0.9999</td></tr>
+  <tr><td><code>serial_triton</code>, 8-bit tape</td><td>0.415</td><td>0.677</td><td>6.9× / 4.6×</td><td>0.9996 / 0.9997</td></tr>
+</table>
+</div>
+
+<p><b>It holds for other lengths and for the repo's batch size.</b></p>
+<div class="scroll">
+<table>
+  <tr><th>site <code>in</code>, B = 16, ms</th><th>L = 512</th><th>1024</th><th>2048</th><th>4096</th><th>8192</th></tr>
+  <tr><td>SpikingJelly fused kernel</td><td>0.721</td><td>1.397</td><td>2.847</td><td>5.703</td><td>11.413</td></tr>
+  <tr><td><code>serial_triton</code>, float16 tape</td><td>0.155</td><td>0.284</td><td>0.452</td><td>0.859</td><td>1.624</td></tr>
+  <tr><td>speed-up</td><td>4.7×</td><td>4.9×</td><td>6.3×</td><td>6.6×</td><td>7.0×</td></tr>
+</table>
+</div>
+<p>With the micro-batch of 2 that the repo trains with, the times are 0.208 ms and 0.256 ms against 1.413 ms and
+2.119 ms (6.8× and 8.3×).</p>
+
+<p><b>Inference.</b> Inference needs only the forward pass. SpikingJelly's forward pass takes 0.886 ms at
+<code>in</code> and 0.972 ms at <code>out</code>. The forward kernel of <code>serial_triton</code> alone takes
+0.328 ms at <code>out</code> with the 8-bit tape, and 0.287 ms when it writes no tape. The function in
+<code>neuron.py</code> always writes the tape today.</p>
+
+<p><b>What this page does not claim.</b> The study timed one neuron site, not a whole training step. The model has
+24 sites. If every site saved what the table shows, the saving would be 12 × (2.432 + 2.412) = 58 ms per forward
+and backward pass at B = 16. This is arithmetic, not a measurement.</p>
+
+<h2>5. How to call it</h2>
+<pre><code>from neuron import serial_triton   # autoresearch/soft_reset_LIF_experiment/neuron.py
+
+# x: [B, L, D] float32 on the GPU, tau: [D] (expand a scalar tau to D values)
+spikes, v_last = serial_triton(x, tau, theta=1.0, U=32, BLOCK=64, nw=2, tape="u8", bf=1)</code></pre>
+<ul>
+  <li><code>U=32</code>: the number of time steps that the kernel loads ahead.</li>
+  <li><code>tape</code>: <code>"u8"</code> is the fastest. Use <code>"h16"</code> if the leak is trained and its gradient
+      must be accurate. Use <code>"h32"</code> for a gradient equal to SpikingJelly's.</li>
+  <li><code>bf=1</code>: the tensors are batch-first, as in the model. Then no transpose is necessary.</li>
+  <li>For site <code>out</code> the best block shape is <code>BLOCK=512, nw=8</code>.</li>
+</ul>
+
+<h2>6. Limits</h2>
+<ul>
+  <li>The kernel is not connected to <code>src/</code>. It is in the autoresearch folder only.</li>
+  <li>The study neuron has a soft reset and carries the membrane over tokens. The trained checkpoint has a hard
+      reset, 4 ticks per token, and a reset per token. The hard-reset variant of the kernel gave the same speed-up
+      (0.416 / 0.675 ms).</li>
+  <li>L must be a multiple of 32. <code>tau</code> must have D values. The kernel raises an error otherwise.</li>
+  <li>The 8-bit tape gives about 3 % relative error on the leak gradient of one channel. The float16 tape gives
+      0.1 to 0.3 %.</li>
+  <li>The speed-up falls for very wide layers: 1.6× at 100k neurons and 1.4× at 400k neurons. There both kernels
+      wait for memory bandwidth.</li>
+  <li>At the micro-batch of 2, Python is the limit (0.23 ms of the pass). A faster kernel cannot help there.</li>
+  <li>5× at site <code>out</code> is not possible with float32 tensors. A tape with zero bits would give 0.605 to
+      0.615 ms, and 5× needs 0.618 ms. The smallest tape that keeps the gradient cosine above 0.99 has 5 bits.</li>
+</ul>
+
+<h2>7. Common mistakes</h2>
+<ul>
+  <li><b>"It is parallel in time."</b> No. Each neuron still runs its 2048 steps one after the other. Only the
+      memory waits overlap.</li>
+  <li><b>"The 8-bit tape changes the spikes."</b> No. The forward pass uses the exact float32 membrane. Only the
+      surrogate gradient reads the rounded value.</li>
+  <li><b>"A smarter parallel method must be faster."</b> Not at this size. The study tried 23 methods. Each extra
+      pass over x costs 0.07 ms at <code>in</code> and 0.14 ms at <code>out</code>, and that is a third of the
+      whole serial neuron.</li>
+</ul>
+
+<h2>8. Check your understanding</h2>
+<p>The float16 tape costs 0.03 ms more than the 8-bit tape at <code>in</code>, but 0.07 ms more at <code>out</code>.
+Why is the cost at <code>out</code> about twice as large?</p>
+<details>
+  <summary>Answer</summary>
+  <p>The kernel is limited by the number of bytes it moves. Site <code>out</code> has twice the neurons
+  (1536 against 768), so one more tape byte per step is twice the bytes. The forward pass writes the byte and the
+  backward pass reads it.</p>
+</details>
+
+<p class="note">Sources: <code>REPORT.md</code>, <code>METHODS.md</code> and <code>neuron.py</code> in
+<code>autoresearch/soft_reset_LIF_experiment/</code>. Benchmark numbers are quoted from these files and were not
+run again for this page.</p>
+
+</main>
+<script>
+const row = (name, cells, cls) =>
+  `<tr><td>${name}</td>${cells.map(c => `<td${cls ? ` class="${cls}"` : ''}>${c}</td>`).join('')}</tr>`;
+const head = first => `<tr><th>${first}</th>${[1, 2, 3, 4, 5, 6, 7, 8].map(t => `<th>t=${t}</th>`).join('')}</tr>`;
+
+const X = ['1.2', '0.6', '2.4', '0.2', '1.8', '0.4', '0.9', '3.0'];
+const H = ['0.6', '0.6', '1.5', '0.35', '1.075', '0.2375', '0.5687', '1.7844'];
+const SP = ['0', '0', '1', '0', '1', '0', '0', '1'];
+const V = ['0.6', '0.6', '0.5', '0.35', '0.075', '0.2375', '0.5687', '0.7844'];
+const CODE = ['1 0111 100', '1 0111 100', '0 1000 000', '1 1000 010', '0 0101 001', '1 1000 100', '1 0111 101', '0 1000 100'];
+const HD = ['0.6094', '0.6094', '1.5312', '0.3438', '1.0742', '0.2188', '0.5781', '1.7812'];
+const GX = ['0.3742', '0.3606', '0.3335', '0.3786', '0.5637', '0.1800', '0.2117', '0.0707'];
+const GX8 = ['0.3795', '0.3599', '0.3207', '0.3773', '0.5641', '0.1797', '0.2170', '0.0712'];
+const XV = ['1.2', '0.0', '1.8', '-0.3', '1.45', '0.325', '0.6625', '2.4313'];
+
+function timeline(showNew) {
+  const wait = 104, work = 30, x0 = 70;
+  let old = '';
+  for (let k = 0; k < 4; k++) {
+    const x = x0 + k * (wait + work);
+    old += `<rect x="${x}" y="52" width="${wait - 2}" height="26" rx="4" fill="var(--wait)" opacity="${showNew ? 0.45 : 1}"/>`
+         + `<rect x="${x + wait}" y="52" width="${work - 2}" height="26" rx="4" fill="var(--work)" opacity="${showNew ? 0.45 : 1}"/>`
+         + `<text x="${x + wait / 2}" y="44" text-anchor="middle" class="m">wait for x${k + 1}</text>`;
+  }
+  let neu = '';
+  if (showNew) {
+    for (let k = 0; k < 4; k++) {
+      neu += `<rect x="${x0 + k * 5}" y="${150 + k * 20}" width="${wait - 2}" height="16" rx="4" fill="var(--wait)"/>`
+           + `<text x="${x0 - 8}" y="${163 + k * 20}" text-anchor="end" class="m">x${k + 1}</text>`
+           + `<rect x="${x0 + wait + 18 + k * work}" y="170" width="${work - 2}" height="26" rx="4" fill="var(--work)"/>`;
+    }
+    neu += `<text x="10" y="134" font-weight="600">New: ask for all loads first, then compute</text>`
+         + `<text x="${x0 + wait + 18}" y="216" class="m">4 steps, one after the other, in registers</text>`
+         + `<line x1="${x0 + wait + 18 + 4 * work}" y1="140" x2="${x0 + wait + 18 + 4 * work}" y2="200" stroke="var(--work)" stroke-dasharray="4 3"/>`
+         + `<text x="${x0 + wait + 26 + 4 * work}" y="152" class="m">done here</text>`;
+  }
+  return `<svg width="100%" viewBox="0 0 680 ${showNew ? 250 : 130}" style="min-width:560px" role="img" aria-label="Timeline of memory waits and compute">
+    <text x="10" y="22" font-weight="600">Old: one load, one wait, one step</text>
+    ${old}
+    <rect x="70" y="${showNew ? 232 : 102}" width="14" height="12" rx="3" fill="var(--wait)"/>
+    <text x="90" y="${showNew ? 243 : 113}" class="m">wait for a memory load</text>
+    <rect x="270" y="${showNew ? 232 : 102}" width="14" height="12" rx="3" fill="var(--work)"/>
+    <text x="290" y="${showNew ? 243 : 113}" class="m">compute one neuron step</text>
+    ${neu}
+  </svg>`;
+}
+
+function bytesFig() {
+  const parts = [['read x', 4, 'var(--work)'], ['write spikes', 4, 'var(--work)'], ['read grad', 4, 'var(--work)'], ['write grad', 4, 'var(--work)']];
+  const rows = [['float32 tape', 4, '24 B · 0.871 ms'], ['float16 tape', 2, '20 B · 0.743 ms'], ['8-bit tape', 1, '18 B · 0.677 ms'], ['no tape (floor)', 0, '16 B · 0.605–0.615 ms']];
+  const u = 15, x0 = 130;
+  let out = '';
+  rows.forEach((r, k) => {
+    const y = 40 + k * 46;
+    let x = x0;
+    out += `<text x="${x0 - 10}" y="${y + 18}" text-anchor="end">${r[0]}</text>`;
+    parts.forEach(p => { out += `<rect x="${x}" y="${y}" width="${p[1] * u - 2}" height="26" rx="4" fill="${p[2]}"/>`; x += p[1] * u; });
+    if (r[1]) out += `<rect x="${x}" y="${y}" width="${2 * r[1] * u - 2}" height="26" rx="4" fill="var(--tape)"/>`;
+    out += `<text x="${x + 2 * r[1] * u + 10}" y="${y + 18}" class="m">${r[2]}</text>`;
+  });
+  return `<svg width="100%" viewBox="0 0 680 250" style="min-width:560px" role="img" aria-label="Bytes moved per neuron step for each tape">
+    <text x="${x0}" y="24" class="m">bytes per neuron and time step (forward + backward) · time at site out</text>
+    ${out}
+    <rect x="${x0}" y="228" width="14" height="12" rx="3" fill="var(--work)"/><text x="${x0 + 20}" y="239" class="m">x, spikes, gradients (fixed)</text>
+    <rect x="${x0 + 230}" y="228" width="14" height="12" rx="3" fill="var(--tape)"/><text x="${x0 + 250}" y="239" class="m">tape: written once, read once</text>
+  </svg>`;
+}
+
+const S = [
+  { t: 'The neuron on toy numbers',
+    cap: 'Start with v = 0. Each step charges, fires if h is at least theta, and subtracts theta after a spike. Step 3 has h = 1.5, so the neuron fires and v becomes 0.5.',
+    fig: () => `<table>${head('')}${row('x (input)', X)}${row('h (charged)', H)}${row('s (spike)', SP, 'hit')}${row('v (after reset)', V)}</table>` },
+  { t: 'Old kernel: the wait is the cost',
+    cap: 'The old kernel loads one x, waits about 0.4 µs, and computes one step. The compute part is tiny. The waits come one after the other: 2048 waits per pass.',
+    fig: () => timeline(false) },
+  { t: 'Change 1: loads ahead',
+    cap: 'The new kernel issues the loads of U future steps first, so their waits overlap. Then it computes the U steps in order. The toy shows U = 4, and the real kernel uses U = 32. This change alone gives 3×.',
+    fig: () => timeline(true) },
+  { t: 'The tape: what the backward pass needs',
+    cap: 'The backward pass needs the charged membrane h of every step. The forward pass saves it: this is the tape. A float32 tape costs 4 bytes per step, as much as x itself.',
+    fig: () => `<table>${head('')}${row('h (the tape)', H)}</table>
+      <table><tr><th>tape</th><th>bytes per step</th><th>in ms</th><th>out ms</th></tr>
+      <tr><td>float32</td><td>4</td><td>0.470</td><td>0.871</td></tr>
+      <tr><td>float16</td><td>2</td><td>0.447</td><td>0.743</td></tr>
+      <tr><td>8-bit code</td><td>1</td><td>0.415</td><td>0.677</td></tr></table>` },
+  { t: 'Change 2: the 8-bit tape',
+    cap: 'The code stores h − theta as a small float: 1 sign bit, 4 exponent bits, 3 mantissa bits. Four steps go into one int32. The forward pass still uses the exact h. Only the backward pass reads the decoded h.',
+    fig: () => `<table><tr><th>step</th><th>h (exact)</th><th>sign</th><th>exponent</th><th>mantissa</th><th>h (decoded)</th></tr>${
+      H.map((h, t) => { const c = CODE[t].split(' '); return `<tr><td>t=${t + 1}</td><td>${h}</td><td>${c[0]}</td><td>${c[1]}</td><td>${c[2]}</td><td>${HD[t]}</td></tr>`; }).join('')}</table>` },
+  { t: 'The backward pass: one reverse loop',
+    cap: 'The loop runs from the last step to the first. It gets the surrogate from h and passes a carry to the earlier step. With the decoded h the toy gradient has a cosine of 0.99988 to the exact gradient.',
+    fig: () => `<pre><code>sg_t    = 1 / (1 + (pi * (h_t - theta))^2)     ATan surrogate, alpha = 2
+gh_t    = gs_t * sg_t + carry
+gx_t    = gh_t * q
+carry   = gh_t * (1 - q)                       goes to step t-1</code></pre>
+      <table>${head('')}${row('dL/dx, exact tape', GX)}${row('dL/dx, 8-bit tape', GX8)}</table>` },
+  { t: 'Change 3: no second read of x',
+    cap: 'The leak gradient needs x_t − v_{t−1}. The charge equation gives it from the tape: (h_t − v_{t−1}) / q. And v_{t−1} is h_{t−1} minus theta times the spike. So the backward pass never reads x.',
+    fig: () => `<table>${head('')}${row('x_t − v_{t−1}', XV)}${row('(h_t − v_{t−1}) / q', XV, 'hit')}</table>
+      <p class="note">Both rows are equal. In the toy the leak gradient dL/dq is 4.2475 both ways, and PyTorch autograd gives 4.2475 too.</p>` },
+  { t: 'What is left: bytes',
+    cap: 'With no waits left, the time is the number of bytes divided by about 1.4 TB/s. The x, spike and gradient streams are fixed at 16 bytes. Only the tape can shrink, and each tape bit costs 0.0086 ms at site out.',
+    fig: bytesFig },
+];
+
+let i = 0;
+const $ = id => document.getElementById(id);
+S.forEach((_, k) => {
+  const d = document.createElement('span');
+  d.onclick = () => { i = k; render(); };
+  $('dots').appendChild(d);
+});
+function render() {
+  $('ttl').textContent = `${i + 1} / ${S.length} · ${S[i].t}`;
+  $('fig').innerHTML = S[i].fig();
+  $('cap').textContent = S[i].cap;
+  [...$('dots').children].forEach((d, k) => d.classList.toggle('on', k === i));
+  $('next').textContent = i === S.length - 1 ? 'Start over' : 'Next';
+}
+$('prev').onclick = () => { if (i > 0) { i--; render(); } };
+$('next').onclick = () => { i = i === S.length - 1 ? 0 : i + 1; render(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { i = Math.min(S.length - 1, i + 1); render(); }
+  if (e.key === 'ArrowLeft') { i = Math.max(0, i - 1); render(); }
+});
+// #step=N opens the page at step N (used for links and for screenshots)
+const asked = parseInt((location.hash.match(/step=(\d+)/) || [])[1], 10);
+if (asked >= 1 && asked <= S.length) i = asked - 1;
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+RESULT	serial_triton	U=32,BLOCK=512,nw=8,tape=u8	out	1536	0.352	0.672	1.0	1.0000	0.0e+00	0.9996	1	2048	ok	PASS; mis real/count/slow=0/0/0; agree_slow=1.0000; verr real/slow=0.0e+00/0.0e+00; cos x,tau real=0.9997,0.9996 slow=0.9998,0.9998; rate=0.0490; nograd_ms=0.349; VARIANT hard=1

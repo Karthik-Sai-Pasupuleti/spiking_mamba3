@@ -1,0 +1,5 @@
+RESULT	bullet_train	K=4,BLOCK=32,nw=1,tape=u8,bwd=serial,U=32,sBLOCK=32,snw=1	in	768	4.030	5.859	0.5	nan	nan	nan	nan	32768	ok	TIMING ONLY (gate not re-run at this size); L=32768,B=1,VARIANT hard=1; nograd_ms=4.029; theta=4
+RESULT	bullet_train	K=16,BLOCK=32,nw=4,tape=u8,bwd=serial,U=32,sBLOCK=32,snw=1	in	768	1.988	3.774	0.5	nan	nan	nan	nan	32768	ok	TIMING ONLY (gate not re-run at this size); L=32768,B=1,VARIANT hard=1; nograd_ms=1.988; theta=4
+RESULT	bullet_train	K=64,BLOCK=32,nw=4,tape=u8,bwd=serial,U=32,sBLOCK=32,snw=1	in	768	1.749	3.552	0.5	nan	nan	nan	nan	32768	ok	TIMING ONLY (gate not re-run at this size); L=32768,B=1,VARIANT hard=1; nograd_ms=1.747; theta=4
+RESULT	bullet_train	K=64,BLOCK=32,nw=4,tape=u8,bwd=scan,Kb=64,bBLOCK=32,bnw=2	in	768	1.746	3.761	0.5	nan	nan	nan	nan	32768	ok	TIMING ONLY (gate not re-run at this size); L=32768,B=1,VARIANT hard=1; nograd_ms=1.743; theta=4
+RESULT	bullet_train	K=128,BLOCK=32,nw=4,tape=u8,bwd=scan,Kb=128,bBLOCK=32,bnw=4	in	768	2.302	3.769	0.5	nan	nan	nan	nan	32768	ok	TIMING ONLY (gate not re-run at this size); L=32768,B=1,VARIANT hard=1; nograd_ms=2.298; theta=4

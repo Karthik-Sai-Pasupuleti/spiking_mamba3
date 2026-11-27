@@ -3,6 +3,7 @@ runs/
 __pycache__/
 .pytest_cache/
 .mypy_cache/
+.pt/
 /data
 /data-tiny
 /data-small
@@ -19,3 +20,4 @@ run.log
 # MLflow tracking store (src/utils/tracking.py)
 mlflow.db
 /mlartifacts
+*.pt
